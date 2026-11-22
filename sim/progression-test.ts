@@ -54,12 +54,14 @@ assert.equal(payoutMultiplier(1), 1); assert.equal(payoutMultiplier(2), 1.25); a
 
 // payouts
 const s2 = new SaveState().data;
-const r = { biome: 'neon_street' as const, mode: 'circuit' as const, position: 1, time: 150, driftScore: 1200, perfectDrifts: 2, coins: 10, jumpBonus: 0 };
+const r = { biome: 'neon_street' as const, mode: 'circuit' as const, position: 1, time: 150, driftScore: 1200, perfectDrifts: 2, coins: 10, jumpBonus: 0, nearMisses: 0, smashes: 0 };
 const p = computePayout(s2, r);
 assert.equal(p.credits, 550 + 100 + 30 + 50);
 assert.equal(p.techParts, 1);
 applyPayout(s2, r, p);
 assert.equal(s2.bestTimes['neon_street:circuit'], 150);
+const chaos = computePayout(s2, { ...r, nearMisses: 3, smashes: 10 });
+assert.equal(chaos.credits, p.credits + 30 + 20);
 const boss = computePayout({ ...s2, locations: { ...s2.locations, neon_street: 5 } }, { ...r, mode: 'boss' });
 assert.ok(boss.firstBoss && boss.techParts === 7 && boss.credits > 2000);
 const ta = computePayout(s2, { ...r, mode: 'time_attack', time: 100 });

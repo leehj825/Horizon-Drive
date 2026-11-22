@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import type { EquipmentId, Loadout } from '../data/equipment';
 
 export interface CarModel {
@@ -192,4 +193,69 @@ export function buildCar(style: CarStyle): CarModel {
   };
   root.traverse((o) => { if ((o as THREE.Mesh).isMesh && ghost) (o as THREE.Mesh).castShadow = false; });
   return model;
+}
+
+
+export type LiteKind = 'sedan' | 'taxi' | 'van' | 'hatch';
+
+let liteBodyMat: THREE.MeshStandardMaterial | null = null;
+let liteHeadMat: THREE.MeshStandardMaterial | null = null;
+
+/**
+ * Cheap civilian car for traffic: the whole body is merged into one vertex-coloured mesh (+ one tail-light mesh and
+ * one headlight mesh), so 20 cars cost about 60 draw calls instead of ~700. Wheels do not spin.
+ */
+export function buildLiteCar(kind: LiteKind, color: number): CarModel {
+  liteBodyMat ??= new THREE.MeshStandardMaterial({ vertexColors: true, flatShading: true, roughness: 0.55, metalness: 0.2 });
+  liteHeadMat ??= new THREE.MeshStandardMaterial({ color: 0xfff6d6, emissive: 0xfff0c0, emissiveIntensity: 1.5, flatShading: true });
+  const parts: THREE.BufferGeometry[] = [];
+  const tails: THREE.BufferGeometry[] = [];
+  const heads: THREE.BufferGeometry[] = [];
+  const add = (list: THREE.BufferGeometry[], w: number, h: number, d: number, x: number, y: number, z: number, col: number) => {
+    const g = new THREE.BoxGeometry(w, h, d);
+    g.translate(x, y, z);
+    const c = new THREE.Color(col);
+    const n = g.getAttribute('position').count;
+    const arr = new Float32Array(n * 3);
+    for (let i = 0; i < n; i++) { arr[i * 3] = c.r; arr[i * 3 + 1] = c.g; arr[i * 3 + 2] = c.b; }
+    g.setAttribute('color', new THREE.BufferAttribute(arr, 3));
+    list.push(g);
+  };
+  const glass = 0x1d2a3c, dark = 0x15171f;
+  const van = kind === 'van';
+  const len = van ? 4.8 : kind === 'hatch' ? 3.8 : 4.3;
+  const bodyH = van ? 1.25 : 0.42;
+  add(parts, 1.9, bodyH, len, 0, van ? 0.92 : 0.52, 0, color);
+  if (van) {
+    add(parts, 1.7, 0.5, 1.0, 0, 1.75, 1.4, glass);
+  } else {
+    add(parts, 1.7, 0.2, 1.3, 0, 0.78, len * 0.31, color);
+    add(parts, 1.5, 0.5, kind === 'hatch' ? 1.9 : 1.9, 0, 0.98, -0.25, glass);
+    add(parts, 1.4, 0.07, 1.6, 0, 1.25, -0.28, color);
+  }
+  if (kind === 'taxi') add(parts, 0.6, 0.2, 0.3, 0, 1.4, -0.3, 0xfff2a8);
+  add(parts, 1.96, 0.1, 0.35, 0, 0.28, len / 2 - 0.15, dark);
+  for (const [x, z] of [[-0.98, 1.4], [0.98, 1.4], [-0.98, -1.4], [0.98, -1.4]] as const) add(parts, 0.34, 0.8, 0.8, x, 0.4, z * (len / 4.3), dark);
+  for (const sx of [-0.62, 0.62]) {
+    add(tails, 0.5, 0.17, 0.08, sx, van ? 0.9 : 0.62, -len / 2 - 0.02, 0xff2230);
+    add(heads, 0.42, 0.15, 0.08, sx, van ? 0.9 : 0.62, len / 2 + 0.02, 0xfff6d6);
+  }
+  const bodyGeo = mergeGeometries(parts, false)!;
+  const tailGeo = mergeGeometries(tails, false)!;
+  const headGeo = mergeGeometries(heads, false)!;
+  for (const g of [...parts, ...tails, ...heads]) g.dispose();
+  const tailMat = new THREE.MeshStandardMaterial({ color: 0xff2230, emissive: 0xff1020, emissiveIntensity: 1.1, flatShading: true });
+  const root = new THREE.Group();
+  const body = new THREE.Group();
+  root.add(body);
+  const bm = new THREE.Mesh(bodyGeo, liteBodyMat);
+  bm.castShadow = true;
+  body.add(bm, new THREE.Mesh(tailGeo, tailMat), new THREE.Mesh(headGeo, liteHeadMat));
+  const none = () => new THREE.Group();
+  return {
+    root, body, frontPivots: [], wheelMeshes: [], wheelRadius: 0.4, tailMat,
+    suspensionSlot: none(), boosterSlot: none(), utilitySlot: none(),
+    applyLoadout() { /* civilians carry no equipment */ },
+    dispose() { bodyGeo.dispose(); tailGeo.dispose(); headGeo.dispose(); tailMat.dispose(); },
+  };
 }

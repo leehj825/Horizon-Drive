@@ -67,6 +67,8 @@ export interface RaceStats {
   perfectDrifts: number;
   coins: number;
   jumpBonus: number;
+  nearMisses: number;
+  smashes: number;
 }
 
 export interface Payout {
@@ -101,6 +103,8 @@ export function computePayout(save: SaveData, r: RaceStats): Payout {
   if (r.perfectDrifts > 0) lines.push({ key: 'payPerfect', value: r.perfectDrifts * 15 });
   if (r.coins > 0) lines.push({ key: 'payCoins', value: r.coins * 5 });
   if (r.jumpBonus > 0) lines.push({ key: 'payJumps', value: r.jumpBonus });
+  if (r.nearMisses > 0) lines.push({ key: 'payNearMiss', value: Math.min(25, r.nearMisses) * 10 });
+  if (r.smashes > 0) lines.push({ key: 'paySmash', value: Math.min(40, r.smashes) * 2 });
   const base = lines.reduce((s, l) => s + l.value, 0);
   const multiplier = payoutMultiplier(level);
   let credits = Math.round(base * multiplier);

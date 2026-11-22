@@ -2,9 +2,9 @@
 const { chromium } = require('playwright');
 (async () => {
   const [,, base = 'http://localhost:5199/'] = process.argv;
-  const browser = await chromium.launch({ args: ['--use-gl=swiftshader', '--enable-webgl', '--ignore-gpu-blocklist', '--no-sandbox'] });
   const errs = [];
   for (const spec of [['neon_street', 'circuit', 5], ['red_canyon', 'duel', 3], ['coast_highway', 'time_attack', 4], ['alpine_pass', 'boss', 5]]) {
+    const browser = await chromium.launch({ args: ['--use-gl=swiftshader', '--enable-webgl', '--ignore-gpu-blocklist', '--no-sandbox'] });
     const page = await browser.newPage({ viewport: { width: 640, height: 360 } });
     page.on('pageerror', (e) => errs.push(spec[0] + ' PAGEERROR: ' + e.message));
     page.on('console', (m) => { if (m.type() === 'error') errs.push(spec[0] + ' ' + m.text()); });
@@ -16,6 +16,7 @@ const { chromium } = require('playwright');
       const DT = 1 / 120;
       let guard = 0;
       while (g.race.phase !== 'finished' && guard++ < 120 * 600) {
+        g.autopilot.others = g.race.everyone;
         const ctl = g.autopilot.update(g.player, DT);
         g.race.step(DT, ctl, null, null);
         g.afterRaceStep && 0;
@@ -23,6 +24,8 @@ const { chromium } = require('playwright');
       out.phase = g.race.phase; out.time = +g.race.time.toFixed(1);
       out.racers = g.race.racers.map((r) => ({ n: r.name, rank: r.rank, laps: r.car.lap, fin: r.finished, ft: +r.finishTime.toFixed(1), best: +r.bestLap.toFixed(1), wall: r.car.wallHits }));
       out.pending = !!g.pendingResults;
+      out.traffic = g.race.traffic ? { cars: g.race.traffic.cars.length, wrecked: g.race.traffic.cars.filter((t) => t.wrecked).length } : null;
+      out.nearMisses = g.race.nearMisses; out.smashed = g.world.props.smashed;
       // let the results screen appear via the normal tick path
       for (let i = 0; i < 400; i++) g.tick(1 / 60);
       out.state = g.state;
@@ -31,8 +34,7 @@ const { chromium } = require('playwright');
       return out;
     });
     console.log(spec.join(':'), JSON.stringify(res));
-    await page.close();
+    await browser.close();
   }
   console.log(errs.length ? errs.join('\n') : 'no page errors');
-  await browser.close();
 })();

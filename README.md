@@ -36,7 +36,8 @@ Debug URL flags: `?autostart=neon_street:circuit` (jump into a race), `&level=5`
   * Vehicle: Engine, Turbo, Tires, Chassis (Lv.0–5).
   * Equipment: 6 swappable parts that change physics *and* attach a visible mesh to the car's slot groups (`suspensionSlot`, `boosterSlot`, `utilitySlot`).
   * Location Lv.1–5: sponsors/gantry/billboards/streetlights → boost pads → jump ramps with bonus coins → grandstands, jumbotron, fireworks. Payout is ×1.0 / 1.25 / 1.5 / 1.75 / 2.0. Higher levels also unlock the next biome (Lv.2) and the boss duel (Lv.5).
-* **Economy:** Credits (CR) + Tech Parts (TP). Coins on track (Credit Magnet pulls them in), placement prizes, drift score, perfect drifts, jump bonuses, par time in Time Attack.
+* **Street racing (Neon Street, lighter on Coast Highway):** rainy night, civilian lane traffic (taxis, vans, sedans) that you must overtake, signalled junctions where **cross traffic** runs the red (the signal heads turn red as a warning), cones and barrels you can plough through, and real crashes: hard hits stun your steering, wreck civilian cars (smoking, hazard lights) and leave them as obstacles. Close passes at speed are **near misses** (nitro + credits). Rivals swerve and brake around traffic.
+* **Economy:** Credits (CR) + Tech Parts (TP). Near misses, smashed props, coins on track (Credit Magnet pulls them in), placement prizes, drift score, perfect drifts, jump bonuses, par time in Time Attack.
 * **i18n:** English default, Korean optional, switchable at any time (`src/i18n`). A unit test keeps the EN/KO key sets identical.
 * **Polish:** bloom on emissives, skid marks, spark/dust/snow particles, speed/nitro FOV, camera shake, minimap, Web Audio engine + SFX, touch controls, pause, wrong-way hint.
 

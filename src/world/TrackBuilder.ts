@@ -5,10 +5,28 @@ import type { Ramp, Rect, TrackFeatures } from '../vehicle/CarController';
 import { Fireworks } from '../fx/Particles';
 import { dashGeometry, ribbonGeometry, wallGeometry } from './ribbon';
 import { along, instanceParts, mulberry32, scatter, stdMat, unitBox, unitCone, unitCyl, type Placement } from './PropFactory';
-import { adTexture, bannerTexture, checkerTexture, chevronTexture, jumbotronTexture, kerbTexture, windowTexture } from './textures';
+import { adTexture, bannerTexture, checkerTexture, chevronTexture, glowTexture, jumbotronTexture, kerbTexture, windowTexture } from './textures';
 import type { Track } from './track';
 
+export type SignalState = 'green' | 'amber' | 'red';
+
+/** A signalled crossroads (cross traffic runs while racers face red). */
+export interface Intersection {
+  s: number;
+  x: number;
+  z: number;
+  /** Unit vector along the cross street (the track's left normal). */
+  cx: number;
+  cz: number;
+  /** Track heading at the junction. */
+  heading: number;
+  /** Half-width of the cross street. */
+  halfStreet: number;
+  setSignal(state: SignalState): void;
+}
+
 export interface BuiltTrack {
+  intersections: Intersection[];
   group: THREE.Group;
   features: TrackFeatures;
   /** Extra coins (ramp bonus arcs) in world coordinates. */
@@ -96,12 +114,76 @@ export function buildTrack(track: Track, preset: BiomePreset, level: number): Bu
     addMesh(dashGeometry(track, 0, 1.2, 5, 14, 0.042, a * L, b * L), mats(dbl(new THREE.MeshBasicMaterial({ color: 0xff7ac8, transparent: true, opacity: 0.8 }))), 0, false);
   }
 
+  // ---- signalled junctions (street racing): open the walls, add cross street, crosswalks and signals ----
+  const intersections: Intersection[] = [];
+  const STREET = 6.5;
+  if (preset.traffic.cross > 0) {
+    const avoidS = [0, L, ...preset.driftZones.map(([a, b]) => ((a + b) / 2) * L)];
+    const spots = track.pickStraights(preset.traffic.cross, Math.max(260, L / (preset.traffic.cross + 1) * 0.8), avoidS);
+    const signalCol: Record<SignalState, number> = { green: 0x35ff7a, amber: 0xffc928, red: 0xff2a3a };
+    const crossMat = mats(dbl(stdMat(preset.roadColor, { roughness: preset.id === 'neon_street' ? 0.32 : 0.9, metalness: preset.id === 'neon_street' ? 0.25 : 0 })));
+    const white = mats(new THREE.MeshBasicMaterial({ color: 0x8a93ad }));
+    const stripeP: Placement[] = [];
+    const dashP: Placement[] = [];
+    const poleP: Placement[] = [];
+    for (const s of spots) {
+      track.wallGaps.push([s - STREET - 1, s + STREET + 1]);
+      const i = track.indexAt(s);
+      const x = track.px[i], z = track.pz[i], h = track.heading(i);
+      const cx = track.nx(i), cz = track.nz(i);
+      const street = new THREE.Mesh(geom(new THREE.BoxGeometry(2 * (W + 80), 0.03, STREET * 2)), crossMat);
+      street.position.set(x, 0.037, z); street.rotation.y = h; street.receiveShadow = true;
+      group.add(street);
+      for (const dir of [-1, 1]) {
+        for (let lat = -hw + 1; lat <= hw - 0.9; lat += 1.7) {
+          const sp = track.pointAt(s + dir * (STREET + 2.4), lat);
+          stripeP.push({ x: sp.x, y: 0.045, z: sp.z, rot: h, sx: 0.8, sy: 1, sz: 3.4 });
+        }
+        for (let u = hw + 2; u < W + 76; u += 7.5) dashP.push({ x: x + cx * dir * u, y: 0.05, z: z + cz * dir * u, rot: h + Math.PI / 2, sx: 0.3, sy: 1, sz: 3.4 });
+      }
+      // signal heads for approaching racers (mounted both sides, light faces back up the road)
+      const lightMat = mats(new THREE.MeshBasicMaterial({ color: signalCol.green }));
+      const sig = track.pointAt(s - STREET - 7, 0);
+      for (const side of [-1, 1]) {
+        const lat = side * (W + 0.9);
+        const pp = track.pointAt(s - STREET - 7, lat);
+        poleP.push({ x: pp.x, y: 0, z: pp.z, rot: h, sx: 1, sy: 1, sz: 1 });
+        const lamp = new THREE.Mesh(geom(new THREE.BoxGeometry(0.55, 0.55, 0.12)), lightMat);
+        lamp.position.set(pp.x, 5.15, pp.z);
+        lamp.rotation.y = h + Math.PI;
+        lamp.translateZ(0.3);
+        group.add(lamp);
+      }
+      void sig;
+      intersections.push({
+        s, x, z, cx, cz, heading: h, halfStreet: STREET,
+        setSignal(state) { lightMat.color.setHex(signalCol[state]); },
+      });
+    }
+    wantInst(stripeP, [{ geo: unitBox().translate(0, 0, 0), mat: white }]);
+    wantInst(dashP, [{ geo: unitBox(), mat: white.clone() }]);
+    const poleMat = stdMat(0x232734, { metalness: 0.5, roughness: 0.5 });
+    wantInst(poleP, [
+      { geo: unitCyl(0.12, 0.14, 6), mat: poleMat, local: new THREE.Matrix4().compose(new THREE.Vector3(0, 0, 0), new THREE.Quaternion(), new THREE.Vector3(1, 5.2, 1)) },
+      { geo: unitBox(), mat: poleMat.clone(), local: new THREE.Matrix4().compose(new THREE.Vector3(0, 4.85, 0), new THREE.Quaternion(), new THREE.Vector3(0.8, 0.8, 0.5)) },
+    ]);
+  }
+  /** Lap ranges that are not open junction gaps (for wall decoration strips). */
+  const solidRanges = (): [number, number][] => {
+    const out: [number, number][] = [];
+    let cur = 0;
+    for (const [a, b] of [...track.wallGaps].sort((p, q) => p[0] - q[0])) { if (a > cur) out.push([cur, a]); cur = b; }
+    if (cur < L) out.push([cur, L]);
+    return out;
+  };
+
   // ---- walls ----
   const wallMat = mats(dbl(stdMat(preset.wallColor, { roughness: 0.8 })));
   for (const sgn of [1, -1]) {
     addMesh(wallGeometry(track, sgn * W, preset.id === 'red_canyon' ? 0.7 : 1.05, 0.55), wallMat);
     if (preset.wallGlow !== null) {
-      addMesh(ribbonGeometry(track, { latA: sgn * (W + 0.1), latB: sgn * (W + 0.42), y: 1.07 }), mats(dbl(new THREE.MeshBasicMaterial({ color: preset.wallGlow }))), 0, false);
+      const glowMat = mats(dbl(new THREE.MeshBasicMaterial({ color: preset.wallGlow })));
+      for (const [a, b] of solidRanges()) addMesh(ribbonGeometry(track, { latA: sgn * (W + 0.1), latB: sgn * (W + 0.42), y: 1.07, s0: a, s1: b }), glowMat, 0, false);
     }
   }
   if (preset.id === 'alpine_pass') {
@@ -252,13 +334,30 @@ export function buildTrack(track: Track, preset: BiomePreset, level: number): Bu
   }
 
   // ---- Location Lv.2: sponsors, gantry, streetlights ----
-  if (feat.sponsors) {
-    const lampPos = [...along(track, 52, W + 1.4, 20, L - 20, [1, 1, 1], tunnelSkip), ...along(track, 52, -(W + 1.4), 36, L - 20, [1, 1, 1], tunnelSkip)];
+  const nearJunction = (s: number) => intersections.some((it) => Math.abs(s - it.s) < 16);
+  if (feat.sponsors || preset.id === 'neon_street') {
+    const skipLamp = (s: number) => tunnelSkip(s) || nearJunction(s);
+    const lampPos = [...along(track, 52, W + 1.4, 20, L - 20, [1, 1, 1], skipLamp), ...along(track, 52, -(W + 1.4), 36, L - 20, [1, 1, 1], skipLamp)];
     const warm = preset.id === 'neon_street' ? 0xff9ad8 : 0xfff0c0;
     wantInst(lampPos, [
       { geo: unitCyl(0.1, 0.14, 5), mat: stdMat(0x2a2f3a), local: new THREE.Matrix4().compose(new THREE.Vector3(0, 0, 0), new THREE.Quaternion(), new THREE.Vector3(1, 7.5, 1)) },
       { geo: unitBox(), mat: new THREE.MeshBasicMaterial({ color: warm }), local: new THREE.Matrix4().compose(new THREE.Vector3(0, 7.4, 0), new THREE.Quaternion(), new THREE.Vector3(0.9, 0.22, 0.45)) },
     ]);
+    if (preset.id === 'neon_street') {
+      // wet-road light pools under every lamp
+      const gt = glowTexture(); disposables.push(gt);
+      const pool = new THREE.PlaneGeometry(1, 1); pool.rotateX(-Math.PI / 2);
+      const poolMat = new THREE.MeshBasicMaterial({ map: gt, color: 0xff6fc0, transparent: true, opacity: 0.5, depthWrite: false, blending: THREE.AdditiveBlending });
+      const pools = lampPos.map((p) => {
+        const i = track.query(p.x, p.z, -1);
+        const side = i.lat > 0 ? 1 : -1;
+        const c = track.pointAt(i.s, side * (hw - 2.2));
+        return { x: c.x, y: 0.048, z: c.z, rot: 0, sx: 16, sy: 1, sz: 16 } as Placement;
+      });
+      wantInst(pools, [{ geo: pool, mat: poolMat }]);
+    }
+  }
+  if (feat.sponsors) {
     // start gantry
     const gantry = new THREE.Group();
     const frame = mats(stdMat(0x1f2430, { metalness: 0.4, roughness: 0.5 }));
@@ -420,7 +519,7 @@ export function buildTrack(track: Track, preset: BiomePreset, level: number): Bu
   }
 
   return {
-    group, features, bonusCoins, fireworks,
+    group, features, bonusCoins, fireworks, intersections,
     update(dt: number, time: number) {
       for (const a of animators) a(dt, time);
       fireworks?.update(dt);

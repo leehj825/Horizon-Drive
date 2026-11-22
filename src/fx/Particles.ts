@@ -128,15 +128,18 @@ export class SkidMarks {
 
 /** Falling snow / drifting dust around the camera. */
 export class Weather {
-  readonly points: THREE.Points;
+  readonly points: THREE.Object3D;
   private pos: Float32Array;
   private n: number;
   private box = new THREE.Vector3(70, 34, 70);
   private fall: number;
   private wind: number;
 
-  constructor(kind: 'snow' | 'dust') {
-    this.n = kind === 'snow' ? 900 : 380;
+  private lines: THREE.LineSegments | null = null;
+  private lpos: Float32Array | null = null;
+
+  constructor(kind: 'snow' | 'dust' | 'rain') {
+    this.n = kind === 'snow' ? 900 : kind === 'rain' ? 1100 : 380;
     this.fall = kind === 'snow' ? 5 : 0.4;
     this.wind = kind === 'snow' ? 1.5 : 7;
     this.pos = new Float32Array(this.n * 3);
@@ -144,6 +147,16 @@ export class Weather {
       this.pos[i * 3] = (Math.random() - 0.5) * this.box.x;
       this.pos[i * 3 + 1] = Math.random() * this.box.y;
       this.pos[i * 3 + 2] = (Math.random() - 0.5) * this.box.z;
+    }
+    if (kind === 'rain') {
+      this.fall = 38; this.wind = 4;
+      this.lpos = new Float32Array(this.n * 6);
+      const lg = new THREE.BufferGeometry();
+      lg.setAttribute('position', new THREE.BufferAttribute(this.lpos, 3));
+      this.lines = new THREE.LineSegments(lg, new THREE.LineBasicMaterial({ color: 0xaec6ff, transparent: true, opacity: 0.32, depthWrite: false }));
+      this.lines.frustumCulled = false;
+      this.points = this.lines;
+      return;
     }
     const geo = new THREE.BufferGeometry();
     geo.setAttribute('position', new THREE.BufferAttribute(this.pos, 3));
@@ -165,13 +178,22 @@ export class Weather {
       if (z > b.z / 2) z -= b.z; if (z < -b.z / 2) z += b.z;
       this.pos[i * 3] = x; this.pos[i * 3 + 1] = y; this.pos[i * 3 + 2] = z;
     }
-    (this.points.geometry.getAttribute('position') as THREE.BufferAttribute).needsUpdate = true;
-    this.points.position.set(Math.round(cam.x / 70) * 0 + cam.x, cam.y - 8, cam.z);
+    if (this.lines && this.lpos) {
+      for (let i = 0; i < this.n; i++) {
+        const x = this.pos[i * 3], y = this.pos[i * 3 + 1], z = this.pos[i * 3 + 2];
+        this.lpos.set([x, y, z, x - this.wind * 0.03, y + 1.3, z], i * 6);
+      }
+      (this.lines.geometry.getAttribute('position') as THREE.BufferAttribute).needsUpdate = true;
+    } else {
+      ((this.points as THREE.Points).geometry.getAttribute('position') as THREE.BufferAttribute).needsUpdate = true;
+    }
+    this.points.position.set(cam.x, cam.y - 8, cam.z);
   }
 
   dispose(): void {
-    this.points.geometry.dispose();
-    (this.points.material as THREE.Material).dispose();
+    const o = this.points as THREE.Points | THREE.LineSegments;
+    o.geometry.dispose();
+    (o.material as THREE.Material).dispose();
   }
 }
 

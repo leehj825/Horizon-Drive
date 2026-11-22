@@ -4,6 +4,8 @@ import { featuresFor, type LocationFeatures } from '../data/upgrades';
 import { ParticleSystem, SkidMarks, Weather } from '../fx/Particles';
 import type { TrackFeatures } from '../vehicle/CarController';
 import { CoinField } from './Coins';
+import { SmashProps } from './SmashProps';
+import type { Intersection } from './TrackBuilder';
 import { gradientSky } from './textures';
 import { buildTrack, type BuiltTrack } from './TrackBuilder';
 import { Track } from './track';
@@ -21,6 +23,8 @@ export interface BiomeWorld {
   trackFeatures: LocationFeatures;
   features: TrackFeatures;
   coins: CoinField;
+  intersections: Intersection[];
+  props: SmashProps;
   particles: ParticleSystem;
   skids: SkidMarks;
   sun: THREE.DirectionalLight;
@@ -86,6 +90,8 @@ export function loadBiomeScene(scene: THREE.Scene, biomeId: BiomeId, locationLev
   root.add(built.group);
   const coins = new CoinField(track, built.bonusCoins);
   root.add(coins.mesh);
+  const props = new SmashProps(track, built.intersections, preset.id === 'neon_street' ? 1.4 : 0.8, preset.trackShape.seed);
+  root.add(props.group);
   const particles = new ParticleSystem(1100);
   root.add(particles.points);
   const skids = new SkidMarks(500);
@@ -98,7 +104,7 @@ export function loadBiomeScene(scene: THREE.Scene, biomeId: BiomeId, locationLev
     preset, level: locationLevel, track,
     trackFeatures: featuresFor(locationLevel),
     features: built.features,
-    coins, particles, skids, sun, root,
+    coins, particles, skids, sun, root, intersections: built.intersections, props,
     gridSlot(i: number) {
       const row = Math.floor(i / 2);
       return { s: L - 9 - row * 9, lat: i % 2 ? track.halfWidth * 0.42 : -track.halfWidth * 0.42 };
@@ -119,6 +125,7 @@ export function loadBiomeScene(scene: THREE.Scene, biomeId: BiomeId, locationLev
       scene.remove(root);
       built.dispose();
       coins.dispose();
+      props.dispose();
       particles.dispose();
       skids.dispose();
       weather?.dispose();

@@ -7,6 +7,9 @@ import { BASE_STATS } from '../data/upgrades';
 import { NO_MODS } from '../data/equipment';
 import { GhostPlayer, GhostRecorder } from './Ghost';
 import type { GhostData } from '../data/saveState';
+import { resolveCars } from './collision';
+import type { Traffic } from './Traffic';
+import type { SmashProps } from '../world/SmashProps';
 
 import type { RaceMode } from '../data/progression';
 export type { RaceMode };
@@ -34,6 +37,11 @@ export interface RaceEvents {
   onLap: (lap: number, lapTime: number, isBest: boolean) => void;
   onFinish: (rank: number, time: number) => void;
   onCollide: (strength: number, byPlayerBumper: boolean) => void;
+  /** The player hit a civilian car or a rival hard enough to crash. */
+  onCrash?: (strength: number) => void;
+  onWreck?: (car: CarController) => void;
+  onNearMiss?: () => void;
+  onSmash?: (kind: 0 | 1, x: number, z: number, byPlayer: boolean) => void;
 }
 
 const RIVAL_NAMES = ['Kira', 'Dash', 'Nyx', 'Rook', 'Vex', 'Juno', 'Blitz', 'Mako'];
@@ -52,6 +60,10 @@ export class RaceManager {
   bestLapGhost: GhostData | null = null;
   finishHold = 0;
   private rubber = true;
+  /** Close passes at speed by the player. */
+  nearMisses = 0;
+  /** Every car on the road: racers plus civilians. */
+  everyone: CarController[] = [];
 
   constructor(
     readonly world: BiomeWorld,
@@ -61,6 +73,8 @@ export class RaceManager {
     savedGhost: GhostData | null,
     rivalSkills: number[],
     scene: THREE.Object3D,
+    readonly traffic: Traffic | null = null,
+    readonly props: SmashProps | null = null,
   ) {
     const w = world;
     playerCar.features = w.features;
@@ -84,10 +98,19 @@ export class RaceManager {
       const hw = w.track.halfWidth;
       const lane = [-0.35, -0.55, -0.1, -0.45][k % 4] * hw;
       const ai = new AIDriver(skill, lane);
+      ai.avoid = 'swerve';
       this.racers.push(this.makeRacer(car, ai, mode === 'boss' ? 'BOSS' : RIVAL_NAMES[(k + Math.floor(w.preset.trackShape.seed)) % RIVAL_NAMES.length], false));
       car.setEvents({});
     });
     this.rubber = mode !== 'boss';
+    if (traffic) {
+      traffic.events.onWreck = (t) => this.events.onWreck?.(t.car);
+      traffic.events.onNearMiss = () => {
+        this.nearMisses++;
+        this.player.car.nitro = Math.min(1, this.player.car.nitro + 0.06);
+        this.events.onNearMiss?.();
+      };
+    }
 
     if (mode === 'time_attack' && savedGhost) {
       this.ghost = new GhostPlayer(savedGhost, scene);
@@ -111,12 +134,15 @@ export class RaceManager {
         for (const r of this.racers) r.car.locked = false;
         this.events.onGo();
       }
-      // let cars settle on the grid
+      // let cars settle on the grid; the street is already alive
       for (const r of this.racers) r.car.update(dt, NEUTRAL, null);
+      this.traffic?.update(dt, this.player.car, (x, y, z) => this.smoke(x, y, z));
       return;
     }
 
     this.time += dt;
+    this.refreshEveryone();
+    for (const r of this.racers) if (r.ai) r.ai.others = this.everyone;
     // rubber band relative to the player
     const pp = this.player.car.progress;
     for (const r of this.racers) {
@@ -133,7 +159,10 @@ export class RaceManager {
       }
       if (c.lap > wasLap) this.lapCrossed(r, c.lap);
     }
+    this.traffic?.update(dt, this.player.car, (x, y, z) => this.smoke(x, y, z));
+    this.refreshEveryone();
     this.collide();
+    this.props?.update(dt, this.everyone, (car, kind, x, z) => this.events.onSmash?.(kind, x, z, car === this.player.car));
     this.rank();
 
     if (this.mode === 'time_attack' && this.ghost) this.ghost.update(dt);
@@ -181,37 +210,28 @@ export class RaceManager {
     order.forEach((r, i) => { r.rank = i + 1; });
   }
 
+  private refreshEveryone(): void {
+    const a = this.everyone;
+    a.length = 0;
+    for (const r of this.racers) a.push(r.car);
+    if (this.traffic) for (const t of this.traffic.cars) a.push(t.car);
+  }
+
+  private smoke(x: number, y: number, z: number): void {
+    this.world.particles.emit(x, y, z, (Math.random() - 0.5) * 1.2, 2.4 + Math.random(), (Math.random() - 0.5) * 1.2, 0x5d606b, 3.4, 1.7, -0.7);
+  }
+
   private collide(): void {
-    const rs = this.racers;
-    for (let i = 0; i < rs.length; i++) for (let j = i + 1; j < rs.length; j++) {
-      const a = rs[i].car, b = rs[j].car;
-      if (a.airborne || b.airborne) continue;
-      // two circles per car along the body keep long cars from overlapping end-to-end
-      let hit = false;
-      for (const oa of [-1.1, 1.1]) for (const ob of [-1.1, 1.1]) {
-        const ax = a.position.x + Math.sin(a.heading) * oa, az = a.position.z + Math.cos(a.heading) * oa;
-        const bx = b.position.x + Math.sin(b.heading) * ob, bz = b.position.z + Math.cos(b.heading) * ob;
-        let dx = bx - ax, dz = bz - az;
-        const d = Math.hypot(dx, dz);
-        const R = 1.75;
-        if (d >= R || d < 1e-4) continue;
-        dx /= d; dz /= d;
-        const push = (R - d) * 0.5;
-        a.position.x -= dx * push; a.position.z -= dz * push;
-        b.position.x += dx * push; b.position.z += dz * push;
-        const rv = (b.vx - a.vx) * dx + (b.vz - a.vz) * dz; // closing speed is negative
-        if (rv < 0) {
-          const imp = -rv * 0.65;
-          a.vx -= dx * imp; a.vz -= dz * imp;
-          b.vx += dx * imp; b.vz += dz * imp;
-          if (!hit) {
-            hit = true;
-            if (-rv > 3) this.events.onCollide(-rv, (rs[i].isPlayer && a.mods.bumper) || (rs[j].isPlayer && b.mods.bumper));
-          }
-        }
-        // Shockwave Bumper: shoves the other car away
-        if (a.mods.bumper) { b.vx += dx * 7 * 0.016 * 60 * 0.1; b.vz += dz * 7 * 0.016 * 60 * 0.1; }
-        if (b.mods.bumper) { a.vx -= dx * 7 * 0.016 * 60 * 0.1; a.vz -= dz * 7 * 0.016 * 60 * 0.1; }
+    const cars = this.everyone;
+    const pc = this.player.car;
+    for (let i = 0; i < cars.length; i++) for (let j = i + 1; j < cars.length; j++) {
+      const a = cars[i], b = cars[j];
+      const rv = resolveCars(a, b);
+      if (rv <= 0) continue;
+      if (this.traffic) { this.traffic.registerHit(a, rv); this.traffic.registerHit(b, rv); }
+      if (a === pc || b === pc) {
+        if (rv > 3) this.events.onCollide(rv, pc.mods.bumper);
+        if (rv > 13) this.events.onCrash?.(rv);
       }
     }
   }
@@ -222,5 +242,6 @@ export class RaceManager {
       if (!r.isPlayer) { r.car.model?.root.removeFromParent(); r.car.model?.dispose(); }
     }
     this.ghost?.dispose();
+    this.traffic?.dispose();
   }
 }

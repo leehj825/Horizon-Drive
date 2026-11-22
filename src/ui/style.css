@@ -155,3 +155,5 @@ body.is-touch .coins { display: none; }
   .menu-buttons { flex-direction: row; flex-wrap: wrap; }
   .menu-buttons .btn { flex: 1 1 140px; }
 }
+
+.hud-center.crash { color: #ff4f5e; text-shadow: 0 0 30px rgba(255, 60, 70, 0.7); font-size: clamp(44px, 10vw, 100px); }

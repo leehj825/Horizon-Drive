@@ -113,3 +113,12 @@ export function kerbTexture(a = '#e23b3b', b = '#f4f4f4'): THREE.CanvasTexture {
   t.magFilter = THREE.NearestFilter;
   return t;
 }
+
+/** Soft radial glow (light pools on wet asphalt). */
+export function glowTexture(): THREE.CanvasTexture {
+  const [c, g] = canvas(128, 128);
+  const grd = g.createRadialGradient(64, 64, 2, 64, 64, 62);
+  grd.addColorStop(0, 'rgba(255,255,255,1)'); grd.addColorStop(0.35, 'rgba(255,255,255,0.45)'); grd.addColorStop(1, 'rgba(255,255,255,0)');
+  g.fillStyle = grd; g.fillRect(0, 0, 128, 128);
+  return tex(c);
+}

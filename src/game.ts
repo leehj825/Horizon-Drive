@@ -12,6 +12,7 @@ import { I18n } from './i18n/i18n';
 import { Input } from './input/Input';
 import { AIDriver } from './race/AIDriver';
 import { RaceManager, TOTAL_LAPS } from './race/RaceManager';
+import { Traffic } from './race/Traffic';
 import { Hud } from './ui/Hud';
 import { Menus, type MenuHost, type Screen } from './ui/Menus';
 import { CarController, type CarFx, type ControlState } from './vehicle/CarController';
@@ -55,6 +56,8 @@ export class Game implements MenuHost {
   private autopilot: AIDriver | null = null;
   private coinsCollected = 0;
   private jumpBonus = 0;
+  private smashCount = 0;
+  private warnedJunction = -1;
   private lastMode: RaceMode = 'time_attack';
   private lastBiome: BiomeId = 'neon_street';
   private resultsShown = false;
@@ -90,7 +93,7 @@ export class Game implements MenuHost {
     this.playerModel = buildCar({ color: 0xff5a36, accent: 0x19e6ff });
     this.scene.add(this.playerModel.root);
     this.levelOverride = opts.level ?? null;
-    if (opts.autopilot) this.autopilot = new AIDriver(0.97, 0);
+    if (opts.autopilot) { this.autopilot = new AIDriver(0.97, 0); this.autopilot.avoid = 'swerve'; }
 
     this.fx = {
       skid: (x, z, h) => this.world?.skids.add(x, z, h),
@@ -220,7 +223,8 @@ export class Game implements MenuHost {
     };
     world.skids.clear();
     world.coins.reset();
-    this.coinsCollected = 0; this.jumpBonus = 0; this.resultsShown = false;
+    world.props.reset();
+    this.coinsCollected = 0; this.jumpBonus = 0; this.smashCount = 0; this.warnedJunction = -1; this.resultsShown = false;
     this.prevLap = -1; this.prevNitro = 0.5;
     this.race = new RaceManager(world, mode, this.player, {
       onCountdown: (n) => { this.hud.center(String(n), 0.9, 'count'); this.sfx.beep(false); },
@@ -231,7 +235,21 @@ export class Game implements MenuHost {
       },
       onFinish: (rank, time) => this.onFinish(rank, time),
       onCollide: (s, bumper) => { this.rig.shake(Math.min(0.5, s * 0.04)); this.sfx.wall(s * 0.6); if (bumper) this.hud.toast('💥', 'cyan', 600); },
-    }, mode === 'time_attack' ? (this.save.data.ghosts[biome] ?? null) : null, skills[mode], this.scene);
+      onCrash: (s) => {
+        this.rig.shake(1.0);
+        this.hud.center(this.i18n.t('ui.crash'), 1.1, 'crash');
+        const p = this.player.position;
+        for (let i = 0; i < 26; i++) world.particles.emit(p.x, 0.8, p.z, (Math.random() - 0.5) * 14, 2 + Math.random() * 7, (Math.random() - 0.5) * 14, i % 3 ? 0xffb347 : 0xffffff, 1.2, 0.7, 14);
+        void s;
+      },
+      onWreck: (c) => { this.hud.toast(this.i18n.t('ui.wreck'), 'gold', 1000); for (let i = 0; i < 14; i++) world.particles.emit(c.position.x, 0.8, c.position.z, (Math.random() - 0.5) * 9, 2 + Math.random() * 5, (Math.random() - 0.5) * 9, 0xffb347, 1.1, 0.6, 14); },
+      onNearMiss: () => { this.hud.toast(this.i18n.t('ui.nearMiss', { n: 10 }), 'cyan', 1100); this.sfx.coin(); },
+      onSmash: (kind, x, z, byPlayer) => {
+        if (byPlayer) { this.smashCount++; this.rig.shake(kind ? 0.22 : 0.1); this.sfx.wall(kind ? 4 : 1.5); }
+        for (let i = 0; i < 6; i++) world.particles.emit(x, 0.4, z, (Math.random() - 0.5) * 6, 1 + Math.random() * 3, (Math.random() - 0.5) * 6, kind ? 0xff8a3a : 0xffffff, 0.9, 0.5, 12);
+      },
+    }, mode === 'time_attack' ? (this.save.data.ghosts[biome] ?? null) : null, skills[mode], this.scene,
+    world.preset.traffic.cars > 0 || world.intersections.length > 0 ? new Traffic(world, this.scene, world.intersections) : null, world.props);
     this.race.ghost?.model.applyLoadout({});
     this.state = 'race';
     this.menus.show('none');
@@ -273,6 +291,7 @@ export class Game implements MenuHost {
       biome, mode, position: mode === 'time_attack' ? 1 : rank, time,
       driftScore: this.player.driftScore, perfectDrifts: this.player.perfectDrifts,
       coins: this.coinsCollected, jumpBonus: this.jumpBonus,
+      nearMisses: r.nearMisses, smashes: this.smashCount,
     };
     const prevBest = this.save.data.bestTimes[`${biome}:${mode}`];
     const payout = computePayout(this.save.data, stats);
@@ -314,7 +333,7 @@ export class Game implements MenuHost {
     let ctl = inp.poll(dt);
     if (this.state === 'race' && this.race) {
       const race = this.race;
-      if (this.autopilot) ctl = this.autopilot.update(this.player, dt);
+      if (this.autopilot) { this.autopilot.others = race.everyone; ctl = this.autopilot.update(this.player, dt); }
       if (inp.consume('KeyR') && race.phase === 'racing') this.player.respawn();
       this.ctlCache = ctl;
       this.acc += dt;
@@ -374,6 +393,18 @@ export class Game implements MenuHost {
     if (p.lap !== this.prevLap) { if (p.lap > this.prevLap) world.coins.reset(); this.prevLap = p.lap; }
     if (this.prevNitro < 0.999 && p.nitro >= 0.999 && race.phase === 'racing') this.hud.toast(this.i18n.t('ui.boostReady'), 'cyan', 1200);
     this.prevNitro = p.nitro;
+    // red signal ahead: cross traffic is about to cross
+    if (race.traffic && race.phase === 'racing') {
+      const L = world.track.length;
+      world.intersections.forEach((it, j) => {
+        const ahead = (((it.s - p.tq.s) % L) + L) % L;
+        if (ahead < 110 && ahead > 15 && race.traffic!.signalAt(j) === 'red' && this.warnedJunction !== j) {
+          this.warnedJunction = j;
+          this.hud.toast(this.i18n.t('ui.redLight'), 'gold', 1500);
+        }
+        if (ahead > 140 && this.warnedJunction === j) this.warnedJunction = -1;
+      });
+    }
     // wrong-way hint
     this.wrongWayCool = Math.max(0, this.wrongWayCool - dt);
     const along = p.vx * p.tq.tx + p.vz * p.tq.tz;

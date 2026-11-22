@@ -27,6 +27,8 @@ export class Track {
   readonly curv: Float32Array;
   readonly halfWidth: number;
   readonly shoulder: number;
+  /** Lap-distance ranges where the side walls are open (junctions). */
+  readonly wallGaps: [number, number][] = [];
   private grid = new Map<number, number[]>();
   private readonly cell = 24;
 
@@ -83,6 +85,11 @@ export class Track {
 
   private cellKey(x: number, z: number): number {
     return Math.floor(x / this.cell) * 100003 + Math.floor(z / this.cell);
+  }
+
+  inGap(s: number): boolean {
+    for (const [a, b] of this.wallGaps) if (s >= a && s <= b) return true;
+    return false;
   }
 
   /** Left-pointing unit normal at sample i (matches the car's "side" vector). */

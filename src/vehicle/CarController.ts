@@ -74,6 +74,15 @@ export class CarController {
   locked = false;
   wallHits = 0;
   features: TrackFeatures = NO_FEATURES;
+  /** Free-roaming body (cross traffic): ignores the track surface, walls and lap progress. */
+  free = false;
+  /** Seconds of reduced steering after a crash. */
+  stunT = 0;
+  /** Extra body roll (wrecks lean over). */
+  extraRoll = 0;
+  /** Blink the tail lights (wrecks). */
+  hazard = false;
+  private clock = 0;
   /** Collision radius used for car-vs-car. */
   readonly radius = 1.55;
 
@@ -145,15 +154,19 @@ export class CarController {
     const mods = this.mods;
     const locked = this.locked;
     const throttle = locked ? 0 : ctl.throttle;
-    const steerIn = locked ? 0 : ctl.steer;
+    this.stunT = Math.max(0, this.stunT - dt);
+    const steerIn = locked ? 0 : ctl.steer * (this.stunT > 0 ? 0.35 : 1);
     const hb = locked ? false : ctl.handbrake;
     const track = this.track;
     const preset = track.preset;
 
     // --- surface under the wheels ---
-    const q = track.query(this.position.x, this.position.z, this.hint, this.tq);
-    this.hint = q.idx;
-    this.offroad = Math.abs(q.lat) > track.halfWidth + 0.4;
+    if (!this.free) {
+      const q0 = track.query(this.position.x, this.position.z, this.hint, this.tq);
+      this.hint = q0.idx;
+    }
+    const q = this.tq;
+    this.offroad = !this.free && Math.abs(q.lat) > track.halfWidth + 0.4;
     let roadGrip = preset.friction;
     if (preset.surface === 'asphalt') roadGrip *= 1 + mods.asphaltGrip;
     else if (mods.ignoreSoft) roadGrip = Math.max(roadGrip, 0.97);
@@ -217,25 +230,26 @@ export class CarController {
     this.position.x += this.vx * dt;
     this.position.z += this.vz * dt;
 
-    this.collideWalls(dt);
+    if (!this.free) this.collideWalls(dt);
     this.vertical(dt);
-    this.padCheck();
+    if (!this.free) this.padCheck();
 
     fx_ = Math.sin(this.heading); fz_ = Math.cos(this.heading);
     sx = Math.cos(this.heading); sz = -Math.sin(this.heading);
     this.forwardSpeed = this.vx * fx_ + this.vz * fz_;
     this.lateralSpeed = this.vx * sx + this.vz * sz;
 
-    // --- lap progress (unwrapped) ---
-    const q2 = track.query(this.position.x, this.position.z, this.hint, this.tq);
-    this.hint = q2.idx;
-    let ds = q2.s - this.prevS;
-    if (ds < -track.length / 2) ds += track.length;
-    else if (ds > track.length / 2) ds -= track.length;
-    this.progress += ds;
-    this.prevS = q2.s;
-
-    this.updateDrift(dt, q2.s);
+    if (!this.free) {
+      // --- lap progress (unwrapped) ---
+      const q2 = track.query(this.position.x, this.position.z, this.hint, this.tq);
+      this.hint = q2.idx;
+      let ds = q2.s - this.prevS;
+      if (ds < -track.length / 2) ds += track.length;
+      else if (ds > track.length / 2) ds -= track.length;
+      this.progress += ds;
+      this.prevS = q2.s;
+      this.updateDrift(dt, q2.s);
+    }
 
     // --- FX ---
     if (fx) {
@@ -301,7 +315,7 @@ export class CarController {
     const wallLat = track.halfWidth + track.shoulder;
     const over = Math.abs(q.lat) - wallLat;
     this.wallContact = Math.max(0, this.wallContact - dt);
-    if (over <= 0) return;
+    if (over <= 0 || track.inGap(q.s)) return;
     const sign = q.lat > 0 ? 1 : -1;
     const nx = track.nx(q.idx) * sign, nz = track.nz(q.idx) * sign; // points outward
     this.position.x -= nx * over;
@@ -406,7 +420,7 @@ export class CarController {
     const k = 1 - Math.exp(-dt * 8);
     this.roll += (targetRoll - this.roll) * k;
     this.pitch += (targetPitch - this.pitch) * k;
-    m.body.rotation.set(this.pitch, 0, this.roll);
+    m.body.rotation.set(this.pitch, 0, this.roll + this.extraRoll);
 
     const steer = ctl ? -ctl.steer * 0.5 : 0;
     this.steerVis += (steer - this.steerVis) * (1 - Math.exp(-dt * 14));
@@ -414,6 +428,7 @@ export class CarController {
     for (const p of m.frontPivots) p.rotation.y = this.steerVis;
     for (const w of m.wheelMeshes) w.rotation.x = this.wheelSpin;
     const braking = ctl ? ctl.throttle < 0 && this.forwardSpeed > 0.5 : false;
-    m.tailMat.emissiveIntensity = braking ? 3.2 : 1.1;
+    this.clock += dt;
+    m.tailMat.emissiveIntensity = this.hazard ? (Math.sin(this.clock * 9) > 0 ? 3.6 : 0.15) : braking ? 3.2 : 1.1;
   }
 }
