@@ -20,6 +20,8 @@ export class CameraRig {
   private tmp = new THREE.Vector3();
   private initialised = false;
   private orbitAngle = 0.6;
+  /** True where the camera may not be (inside buildings); it is pulled towards the car until free. */
+  blocked: ((x: number, z: number) => boolean) | null = null;
   /** Added to the FOV (user setting). */
   fovOffset = 0;
 
@@ -54,6 +56,13 @@ export class CameraRig {
     const dist = 8.6 + speedT * 1.8 + (boost ? 1.4 : 0);
     const height = 3.5 + speedT * 0.6 + car.position.y * 0.5;
     const desired = this.tmp.set(car.position.x - Math.sin(this.yaw) * dist, height, car.position.z - Math.cos(this.yaw) * dist);
+    if (this.blocked) {
+      for (let k = 0; k < 10 && this.blocked(desired.x, desired.z); k++) {
+        desired.x = car.position.x + (desired.x - car.position.x) * 0.78;
+        desired.z = car.position.z + (desired.z - car.position.z) * 0.78;
+        desired.y += 0.22;
+      }
+    }
     if (!this.initialised) { this.pos.copy(desired); this.initialised = true; }
     else this.pos.lerp(desired, 1 - Math.exp(-dt * 9));
     this.look.set(car.position.x + Math.sin(this.yaw) * 4, 1.4 + car.position.y * 0.6, car.position.z + Math.cos(this.yaw) * 4);

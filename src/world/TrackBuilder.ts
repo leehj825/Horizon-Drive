@@ -7,6 +7,7 @@ import { dashGeometry, ribbonGeometry, wallGeometry } from './ribbon';
 import { along, instanceParts, mulberry32, scatter, stdMat, unitBox, unitCone, unitCyl, type Placement } from './PropFactory';
 import { adTexture, bannerTexture, checkerTexture, chevronTexture, glowTexture, jumbotronTexture, kerbTexture, windowTexture } from './textures';
 import type { Track } from './track';
+import { buildCity } from './CityBuilder';
 
 export type SignalState = 'green' | 'amber' | 'red';
 
@@ -82,6 +83,9 @@ export function buildTrack(track: Track, preset: BiomePreset, level: number): Bu
     }
   }
 
+  const city = !!track.city;
+  if (city) buildCity(track, preset, group, disposables);
+
   // ---- road surface ----
   const road = mats(dbl(stdMat(preset.roadColor, { roughness: preset.id === 'neon_street' ? 0.32 : 0.9, metalness: preset.id === 'neon_street' ? 0.25 : 0 })));
   addMesh(ribbonGeometry(track, { latA: -hw, latB: hw, y: 0.02, vScale: 12 }), road);
@@ -109,19 +113,33 @@ export function buildTrack(track: Track, preset: BiomePreset, level: number): Bu
   addMesh(ribbonGeometry(track, { latA: -hw, latB: hw, y: 0.045, s0: L - 1.2, s1: L + 1.2, vScale: 2.4 }), mats(dbl(new THREE.MeshBasicMaterial({ map: checker }))), 0, false);
 
   // neon drift zones
-  for (const [a, b] of preset.driftZones) {
+  for (const [a, b] of track.driftZones) {
     addMesh(ribbonGeometry(track, { latA: -hw + 0.8, latB: hw - 0.8, y: 0.04, s0: a * L, s1: b * L }), mats(dbl(new THREE.MeshBasicMaterial({ color: 0xff3fa6, transparent: true, opacity: 0.22, depthWrite: false }))), 0, false);
     addMesh(dashGeometry(track, 0, 1.2, 5, 14, 0.042, a * L, b * L), mats(dbl(new THREE.MeshBasicMaterial({ color: 0xff7ac8, transparent: true, opacity: 0.8 }))), 0, false);
   }
 
   // ---- signalled junctions (street racing): open the walls, add cross street, crosswalks and signals ----
   const intersections: Intersection[] = [];
-  const STREET = 6.5;
+  const STREET = preset.id === 'neon_street' ? hw : 6.5;
   if (preset.traffic.cross > 0) {
-    const avoidS = [0, L, ...preset.driftZones.map(([a, b]) => ((a + b) / 2) * L)];
-    const spots = track.pickStraights(preset.traffic.cross, Math.max(260, L / (preset.traffic.cross + 1) * 0.8), avoidS);
+    const avoidS = [0, L, ...track.driftZones.map(([a, b]) => ((a + b) / 2) * L)];
+    let spots: number[];
+    if (city) {
+      // signalled junctions: spread over the lap, away from the start line and corners
+      const pool = track.crossings.filter((s) => s > 90 && s < L - 90);
+      spots = [];
+      const want = preset.traffic.cross;
+      for (let k = 0; k < want; k++) {
+        const target = ((k + 0.5) / want) * L;
+        const pick = pool.filter((s) => !spots.includes(s)).sort((a, b) => Math.abs(a - target) - Math.abs(b - target))[0];
+        if (pick !== undefined) spots.push(pick);
+      }
+      spots.sort((a, b) => a - b);
+    } else {
+      spots = track.pickStraights(preset.traffic.cross, Math.max(260, L / (preset.traffic.cross + 1) * 0.8), avoidS);
+    }
     const signalCol: Record<SignalState, number> = { green: 0x35ff7a, amber: 0xffc928, red: 0xff2a3a };
-    const crossMat = mats(dbl(stdMat(preset.roadColor, { roughness: preset.id === 'neon_street' ? 0.32 : 0.9, metalness: preset.id === 'neon_street' ? 0.25 : 0 })));
+    const crossMat = mats(dbl(stdMat(preset.roadColor, { roughness: preset.id === 'neon_street' ? 0.32 : 0.9, metalness: preset.id === 'neon_street' ? 0.25 : 0, flatShading: false })));
     const white = mats(new THREE.MeshBasicMaterial({ color: 0x8a93ad }));
     const stripeP: Placement[] = [];
     const dashP: Placement[] = [];
@@ -131,15 +149,19 @@ export function buildTrack(track: Track, preset: BiomePreset, level: number): Bu
       const i = track.indexAt(s);
       const x = track.px[i], z = track.pz[i], h = track.heading(i);
       const cx = track.nx(i), cz = track.nz(i);
-      const street = new THREE.Mesh(geom(new THREE.BoxGeometry(2 * (W + 80), 0.03, STREET * 2)), crossMat);
-      street.position.set(x, 0.037, z); street.rotation.y = h; street.receiveShadow = true;
-      group.add(street);
+      if (!city) {
+        const sg = new THREE.PlaneGeometry(2 * (W + 80), STREET * 2);
+        sg.rotateX(-Math.PI / 2);
+        const street = new THREE.Mesh(geom(sg), crossMat);
+        street.position.set(x, 0.037, z); street.rotation.y = h; street.receiveShadow = true;
+        group.add(street);
+      }
       for (const dir of [-1, 1]) {
         for (let lat = -hw + 1; lat <= hw - 0.9; lat += 1.7) {
           const sp = track.pointAt(s + dir * (STREET + 2.4), lat);
-          stripeP.push({ x: sp.x, y: 0.045, z: sp.z, rot: h, sx: 0.8, sy: 1, sz: 3.4 });
+          stripeP.push({ x: sp.x, y: 0.045, z: sp.z, rot: h, sx: 0.8, sy: 0.04, sz: 3.4 });
         }
-        for (let u = hw + 2; u < W + 76; u += 7.5) dashP.push({ x: x + cx * dir * u, y: 0.05, z: z + cz * dir * u, rot: h + Math.PI / 2, sx: 0.3, sy: 1, sz: 3.4 });
+        if (!city) for (let u = hw + 2; u < W + 76; u += 7.5) dashP.push({ x: x + cx * dir * u, y: 0.05, z: z + cz * dir * u, rot: h + Math.PI / 2, sx: 0.3, sy: 0.04, sz: 3.4 });
       }
       // signal heads for approaching racers (mounted both sides, light faces back up the road)
       const lightMat = mats(new THREE.MeshBasicMaterial({ color: signalCol.green }));
@@ -240,7 +262,7 @@ export function buildTrack(track: Track, preset: BiomePreset, level: number): Bu
   const noTunnel = (arr: Placement[]) => arr.filter((p) => !nearTunnel(p.x, p.z));
   const lookup = (id: string) => preset.props.includes(id);
 
-  if (lookup('cyberBuilding')) {
+  if (lookup('cyberBuilding') && !city) {
     const win = windowTexture(preset.trackShape.seed);
     disposables.push(win);
     const place = scatter(track, rng, 150, 7, 85, (r) => [10 + r() * 16, 22 + r() * r() * 110, 10 + r() * 16], { clearance: 7 });
@@ -248,7 +270,7 @@ export function buildTrack(track: Track, preset: BiomePreset, level: number): Bu
     // rooftop beacons
     wantInst(place.map((p) => ({ ...p, y: p.sy, sx: 1.2, sy: 2.4, sz: 1.2 })), [{ geo: unitBox(), mat: new THREE.MeshBasicMaterial({ color: 0xff3fa6 }) }]);
   }
-  if (lookup('neonArch')) {
+  if (lookup('neonArch') && !city) {
     const place = along(track, 190, 0, 90, L - 60).filter((p) => !nearTunnel(p.x, p.z));
     const post = new THREE.MeshBasicMaterial({ color: 0x19e6ff });
     const beam = new THREE.MeshBasicMaterial({ color: 0xff3fa6 });
@@ -337,7 +359,8 @@ export function buildTrack(track: Track, preset: BiomePreset, level: number): Bu
   const nearJunction = (s: number) => intersections.some((it) => Math.abs(s - it.s) < 16);
   if (feat.sponsors || preset.id === 'neon_street') {
     const skipLamp = (s: number) => tunnelSkip(s) || nearJunction(s);
-    const lampPos = [...along(track, 52, W + 1.4, 20, L - 20, [1, 1, 1], skipLamp), ...along(track, 52, -(W + 1.4), 36, L - 20, [1, 1, 1], skipLamp)];
+    const lampLat = city ? W - 0.9 : W + 1.4;
+    const lampPos = [...along(track, city ? 40 : 52, lampLat, 20, L - 20, [1, 1, 1], skipLamp), ...along(track, city ? 40 : 52, -lampLat, 36, L - 20, [1, 1, 1], skipLamp)];
     const warm = preset.id === 'neon_street' ? 0xff9ad8 : 0xfff0c0;
     wantInst(lampPos, [
       { geo: unitCyl(0.1, 0.14, 5), mat: stdMat(0x2a2f3a), local: new THREE.Matrix4().compose(new THREE.Vector3(0, 0, 0), new THREE.Quaternion(), new THREE.Vector3(1, 7.5, 1)) },

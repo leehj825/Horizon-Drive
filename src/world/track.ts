@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import type { BiomePreset } from '../data/biomes';
+import { buildGridRoute, type BuiltRoute } from './gridRoute';
 
 export interface TrackQuery {
   idx: number;
@@ -26,6 +27,14 @@ export class Track {
   /** Signed curvature (1/m), + = turning left. */
   readonly curv: Float32Array;
   readonly halfWidth: number;
+  /** City-grid details (only for route presets). */
+  readonly city: (BuiltRoute & { pitch: number }) | null = null;
+  /** Lap distance of every straight street crossing (city only). */
+  readonly crossings: number[] = [];
+  /** Lap distance of each corner's apex (city only). */
+  readonly cornerS: number[] = [];
+  /** Drift score zones as fractions of the lap. */
+  driftZones: [number, number][];
   readonly shoulder: number;
   /** Lap-distance ranges where the side walls are open (junctions). */
   readonly wallGaps: [number, number][] = [];
@@ -33,18 +42,26 @@ export class Track {
   private readonly cell = 24;
 
   constructor(readonly preset: BiomePreset, samples = 900) {
-    const sh = preset.trackShape;
-    const ctrl: THREE.Vector3[] = [];
-    const K = 72;
-    for (let i = 0; i < K; i++) {
-      const th = (i / K) * Math.PI * 2;
-      let r = 1;
-      for (const [f, a, ph] of sh.harmonics) r += a * Math.cos(f * th + ph);
-      ctrl.push(new THREE.Vector3(Math.cos(th) * r * sh.radius * sh.stretchX, 0, Math.sin(th) * r * sh.radius));
+    let pts: THREE.Vector3[];
+    let route: BuiltRoute | null = null;
+    if (preset.route) {
+      route = buildGridRoute(preset.route);
+      pts = route.points.map((p) => new THREE.Vector3(p.x, 0, p.z));
+    } else {
+      const sh = preset.trackShape;
+      const ctrl: THREE.Vector3[] = [];
+      const K = 72;
+      for (let i = 0; i < K; i++) {
+        const th = (i / K) * Math.PI * 2;
+        let r = 1;
+        for (const [f, a, ph] of sh.harmonics) r += a * Math.cos(f * th + ph);
+        ctrl.push(new THREE.Vector3(Math.cos(th) * r * sh.radius * sh.stretchX, 0, Math.sin(th) * r * sh.radius));
+      }
+      const curve = new THREE.CatmullRomCurve3(ctrl, true, 'centripetal');
+      pts = curve.getSpacedPoints(samples);
+      pts.pop(); // closed: last == first
     }
-    const curve = new THREE.CatmullRomCurve3(ctrl, true, 'centripetal');
-    const pts = curve.getSpacedPoints(samples);
-    pts.pop(); // closed: last == first
+    this.driftZones = preset.driftZones;
     this.n = pts.length;
     this.px = new Float32Array(this.n);
     this.pz = new Float32Array(this.n);
@@ -80,6 +97,13 @@ export class Track {
       const key = this.cellKey(this.px[i], this.pz[i]);
       const a = this.grid.get(key);
       if (a) a.push(i); else this.grid.set(key, [i]);
+    }
+    if (route && preset.route) {
+      (this as { city: unknown }).city = { ...route, pitch: preset.route.pitch };
+      for (const c of route.crossings) this.crossings.push(this.query(c.x, c.z, -1).s);
+      this.crossings.sort((a, b) => a - b);
+      for (const c of route.corners) this.cornerS.push(this.query(c.x, c.z, -1).s);
+      this.driftZones = preset.route.drift.map(([i, j]) => [Math.max(0, (this.cornerS[i] - 22) / this.length), Math.min(1, (this.cornerS[j] + 26) / this.length)] as [number, number]);
     }
   }
 

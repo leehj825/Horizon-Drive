@@ -282,7 +282,7 @@ export class CarController {
     }
     const L = this.track.length;
     const f = s / L;
-    const inZone = this.track.preset.driftZones.some(([a, b]) => f >= a && f <= b);
+    const inZone = this.track.driftZones.some(([a, b]) => f >= a && f <= b);
     const zoneMul = inZone ? 2 : 1;
     if (this.drifting && slipping) {
       this.driftTime += dt;
@@ -315,7 +315,7 @@ export class CarController {
     const wallLat = track.halfWidth + track.shoulder;
     const over = Math.abs(q.lat) - wallLat;
     this.wallContact = Math.max(0, this.wallContact - dt);
-    if (over <= 0 || track.inGap(q.s)) return;
+    if (over <= 0) return;
     const sign = q.lat > 0 ? 1 : -1;
     const nx = track.nx(q.idx) * sign, nz = track.nz(q.idx) * sign; // points outward
     this.position.x -= nx * over;

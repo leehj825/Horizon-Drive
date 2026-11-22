@@ -147,6 +147,13 @@ export class Game implements MenuHost {
     this.player.placeOnTrack(gs.s, gs.lat);
     this.player.locked = true;
     this.hud.setTrack(this.world.track);
+    {
+      // street canyons: keep the chase camera between the facades
+      const tr = this.world.track;
+      let hint = -1;
+      const q = { idx: 0, s: 0, lat: 0, tx: 0, tz: 1 };
+      this.rig.blocked = tr.city ? (x, z) => { tr.query(x, z, hint, q); hint = q.idx; return Math.abs(q.lat) > tr.halfWidth + tr.shoulder - 1.2; } : null;
+    }
     this.wirePlayerEvents();
     this.rig.snap();
     this.world.particles.setViewScale(this.canvas.clientHeight || 720);
@@ -419,7 +426,7 @@ export class Game implements MenuHost {
       lapTime: 0,
       bestLap: Math.min(me.bestLap, this.lapBestFromSave(this.lastBiome)),
       driftPoints: p.driftPoints, driftActive: p.drifting,
-      driftZone: world.preset.driftZones.some(([a, b]) => p.tq.s / world.track.length >= a && p.tq.s / world.track.length <= b),
+      driftZone: world.track.driftZones.some(([a, b]) => p.tq.s / world.track.length >= a && p.tq.s / world.track.length <= b),
       coins: this.coinsCollected, offroad: p.offroad && race.phase === 'racing',
     }, dt);
     this.hud.drawMinimap(dt, race.racers.map((r) => ({ x: r.car.position.x, z: r.car.position.z, player: r.isPlayer })));

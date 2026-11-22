@@ -1,5 +1,7 @@
 /** Biome presets: lighting, fog, surface physics and track layout. Each race happens in exactly one biome. */
 
+import type { GridRouteSpec } from '../world/gridRoute';
+
 export type BiomeId = 'neon_street' | 'red_canyon' | 'coast_highway' | 'alpine_pass';
 export type SurfaceKind = 'asphalt' | 'dirt' | 'snow';
 
@@ -36,6 +38,8 @@ export interface BiomePreset {
   shoulder: number;
   props: string[];
   trackShape: TrackShape;
+  /** When set the track is a city-grid circuit instead of the harmonic spline. */
+  route?: GridRouteSpec;
   /** Tunnel ranges as fractions of the lap [start, end]. */
   tunnels: [number, number][];
   /** Drift score zones (fractions of the lap); 2x score and nitro. */
@@ -72,8 +76,8 @@ export const BIOME_PRESETS: Record<BiomeId, BiomePreset> = {
     laneColor: 0xa9bcdc,
     friction: 1.0,
     surface: 'asphalt',
-    roadWidth: 14,
-    shoulder: 5,
+    roadWidth: 12,
+    shoulder: 2.5,
     props: ['cyberBuilding', 'neonArch', 'streetLamp'],
     trackShape: {
       radius: 180,
@@ -81,10 +85,17 @@ export const BIOME_PRESETS: Record<BiomeId, BiomePreset> = {
       harmonics: [[3, 0.24, 0.6], [5, 0.14, 2.1], [2, 0.16, 1.2]],
       seed: 11,
     },
+    route: {
+      pitch: 76,
+      corners: [[0, 0, 34], [3, 0, 12], [3, 1, 12], [4, 1, 12], [4, 0, 12], [5, 0, 12], [5, 3, 12], [3, 3, 12], [3, 2, 12], [2, 2, 12], [2, 3, 12], [0, 3, 12]],
+      startDist: 80,
+      plazas: [0],
+      drift: [[2, 4], [8, 10]],
+    },
     tunnels: [],
     driftZones: [[0.28, 0.38], [0.66, 0.76]],
     fxColor: 0x19e6ff,
-    parTime: 150,
+    parTime: 235,
     weather: 'rain',
     traffic: { cars: 11, cross: 3 },
     bloom: 0.85,
