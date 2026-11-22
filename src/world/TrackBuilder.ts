@@ -65,12 +65,13 @@ export function buildTrack(track: Track, preset: BiomePreset, level: number): Bu
 
   // ---- ground ----
   const isCoast = preset.id === 'coast_highway';
+  const isWater = isCoast || preset.id === 'harbor_docks';
   const ground = new THREE.Mesh(
     new THREE.PlaneGeometry(9000, 9000),
-    mats(new THREE.MeshStandardMaterial({ color: preset.groundColor, roughness: isCoast ? 0.25 : 0.95, metalness: isCoast ? 0.1 : 0, flatShading: true })),
+    mats(new THREE.MeshStandardMaterial({ color: preset.groundColor, roughness: isWater ? 0.25 : 0.95, metalness: isWater ? 0.1 : 0, flatShading: true })),
   );
   ground.rotation.x = -Math.PI / 2;
-  ground.position.y = isCoast ? -0.9 : -0.06;
+  ground.position.y = isWater ? -0.9 : -0.06;
   ground.receiveShadow = true;
   disposables.push(ground.geometry);
   group.add(ground);
@@ -101,7 +102,7 @@ export function buildTrack(track: Track, preset: BiomePreset, level: number): Bu
   const glowR = preset.id === 'neon_street' ? 0x19e6ff : preset.laneColor;
   addMesh(ribbonGeometry(track, { latA: hw - 0.7, latB: hw - 0.35, y: 0.035 }), mats(dbl(new THREE.MeshBasicMaterial({ color: glowL }))), 0, false);
   addMesh(ribbonGeometry(track, { latA: -hw + 0.35, latB: -hw + 0.7, y: 0.035 }), mats(dbl(new THREE.MeshBasicMaterial({ color: glowR }))), 0, false);
-  if (preset.id !== 'neon_street') {
+  if (preset.id !== 'neon_street' && !city) {
     const kerb = kerbTexture(preset.id === 'alpine_pass' ? '#d94a2b' : '#e23b3b');
     disposables.push(kerb);
     const kerbMat = mats(dbl(new THREE.MeshBasicMaterial({ map: kerb })));
@@ -121,7 +122,7 @@ export function buildTrack(track: Track, preset: BiomePreset, level: number): Bu
 
   // ---- signalled junctions (street racing): open the walls, add cross street, crosswalks and signals ----
   const intersections: Intersection[] = [];
-  const STREET = preset.id === 'neon_street' ? hw : 6.5;
+  const STREET = preset.route ? hw : 6.5;
   if (preset.traffic.cross > 0) {
     const avoidS = [0, L, ...track.driftZones.map(([a, b]) => ((a + b) / 2) * L)];
     let spots: number[];
@@ -380,7 +381,7 @@ export function buildTrack(track: Track, preset: BiomePreset, level: number): Bu
 
   // ---- Location Lv.2: sponsors, gantry, streetlights ----
   const nearJunction = (s: number) => intersections.some((it) => Math.abs(s - it.s) < 16);
-  if (feat.sponsors || preset.id === 'neon_street') {
+  if (feat.sponsors || city) {
     const skipLamp = (s: number) => tunnelSkip(s) || nearJunction(s);
     const lampLat = city ? W - 0.9 : W + 1.4;
     const lampPos = [...along(track, city ? 40 : 52, lampLat, 20, L - 20, [1, 1, 1], skipLamp), ...along(track, city ? 40 : 52, -lampLat, 36, L - 20, [1, 1, 1], skipLamp)];

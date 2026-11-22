@@ -90,7 +90,7 @@ export function loadBiomeScene(scene: THREE.Scene, biomeId: BiomeId, locationLev
   root.add(built.group);
   const coins = new CoinField(track, built.bonusCoins);
   root.add(coins.mesh);
-  const props = new SmashProps(track, built.intersections, preset.id === 'neon_street' ? 1.4 : 0.8, preset.trackShape.seed);
+  const props = new SmashProps(track, built.intersections, track.city ? (preset.id === 'neon_street' ? 1.4 : 1.1) : 0.8, preset.trackShape.seed);
   root.add(props.group);
   const particles = new ParticleSystem(1100);
   root.add(particles.points);

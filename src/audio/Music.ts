@@ -14,7 +14,7 @@ const THEMES: Record<string, Theme> = {
   coast_highway: { bpm: 126, root: 48, scale: MAJOR, prog: [0, 4, 5, 3], arp: [0, 2, 4, 2, 7, 9, 7, 4], swing: 0 },
   alpine_pass: { bpm: 98, root: 52, scale: MINOR, prog: [0, 6, 5, 4], arp: [0, 4, 7, 4, 9, 7, 4, 2], swing: 0.08 },
   harbor_docks: { bpm: 110, root: 42, scale: MINOR, prog: [0, 0, 5, 6], arp: [0, 0, 4, 0, 7, 0, 4, 2], swing: 0.1 },
-  sunset_downtown: { bpm: 120, root: 43, scale: MAJOR, prog: [0, 5, 3, 4], arp: [0, 4, 7, 4, 2, 4, 7, 9], swing: 0 },
+  downtown_day: { bpm: 120, root: 43, scale: MAJOR, prog: [0, 5, 3, 4], arp: [0, 4, 7, 4, 2, 4, 7, 9], swing: 0 },
 };
 
 const mtof = (m: number) => 440 * Math.pow(2, (m - 69) / 12);

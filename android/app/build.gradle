@@ -10,7 +10,7 @@ android {
         applicationId 'io.github.leehj825.horizondrive'
         minSdk 26
         targetSdk 34
-        versionCode 1
+        versionCode((System.getenv('VERSION_CODE') ?: '1') as int)
         versionName '0.1.0-pre'
     }
 
@@ -18,7 +18,24 @@ android {
         buildConfig true
     }
 
+    // Release signing: only when the keystore is provided through the environment (see README / CI secrets).
+    signingConfigs {
+        release {
+            def ks = System.getenv('KEYSTORE_FILE')
+            if (ks) {
+                storeFile file(ks)
+                storePassword System.getenv('KEYSTORE_PASSWORD')
+                keyAlias System.getenv('KEY_ALIAS')
+                keyPassword System.getenv('KEY_PASSWORD')
+            }
+        }
+    }
+
     buildTypes {
+        release {
+            if (System.getenv('KEYSTORE_FILE')) signingConfig signingConfigs.release
+            minifyEnabled false
+        }
         debug {
             applicationIdSuffix '.debug'
             versionNameSuffix '-debug'

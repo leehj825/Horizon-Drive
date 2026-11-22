@@ -2,7 +2,8 @@
 
 import type { GridRouteSpec } from '../world/gridRoute';
 
-export type BiomeId = 'neon_street' | 'red_canyon' | 'coast_highway' | 'alpine_pass';
+export type BiomeId = 'neon_street' | 'harbor_docks' | 'downtown_day' | 'red_canyon' | 'coast_highway' | 'alpine_pass';
+export type CityStyle = 'neon' | 'harbor' | 'day';
 export type SurfaceKind = 'asphalt' | 'dirt' | 'snow';
 
 export interface TrackShape {
@@ -40,6 +41,8 @@ export interface BiomePreset {
   trackShape: TrackShape;
   /** When set the track is a city-grid circuit instead of the harmonic spline. */
   route?: GridRouteSpec;
+  /** Look of the city blocks (route presets only). */
+  cityStyle?: CityStyle;
   /** Tunnel ranges as fractions of the lap [start, end]. */
   tunnels: [number, number][];
   /** Drift score zones (fractions of the lap); 2x score and nitro. */
@@ -58,7 +61,7 @@ export interface BiomePreset {
   unlockedBy: BiomeId | null;
 }
 
-export const BIOME_ORDER: BiomeId[] = ['neon_street', 'red_canyon', 'coast_highway', 'alpine_pass'];
+export const BIOME_ORDER: BiomeId[] = ['neon_street', 'harbor_docks', 'downtown_day', 'red_canyon', 'coast_highway', 'alpine_pass'];
 
 export const BIOME_PRESETS: Record<BiomeId, BiomePreset> = {
   neon_street: {
@@ -85,6 +88,7 @@ export const BIOME_PRESETS: Record<BiomeId, BiomePreset> = {
       harmonics: [[3, 0.24, 0.6], [5, 0.14, 2.1], [2, 0.16, 1.2]],
       seed: 11,
     },
+    cityStyle: 'neon',
     route: {
       pitch: 76,
       corners: [[0, 0, 34], [3, 0, 12], [3, 1, 12], [4, 1, 12], [4, 0, 12], [5, 0, 12], [5, 3, 12], [3, 3, 12], [3, 2, 12], [2, 2, 12], [2, 3, 12], [0, 3, 12]],
@@ -100,6 +104,78 @@ export const BIOME_PRESETS: Record<BiomeId, BiomePreset> = {
     traffic: { cars: 11, cross: 3, oncoming: 0.4 },
     bloom: 0.85,
     unlockedBy: null,
+  },
+  harbor_docks: {
+    id: 'harbor_docks',
+    skyColor: 0x1d2c4a,
+    horizonColor: 0xf2a65a,
+    fog: { color: 0xc58a6a, density: 0.0052 },
+    ambientLight: { color: 0xc4b2c8, intensity: 1.15 },
+    sunLight: { color: 0xffb36b, intensity: 2.0, position: [-90, 38, 60] },
+    roadColor: 0x3a3d46,
+    groundColor: 0x0e4a63,
+    shoulderColor: 0x5a5f6b,
+    wallColor: 0x80858f,
+    wallGlow: null,
+    laneColor: 0xe8d27a,
+    friction: 0.93,
+    surface: 'asphalt',
+    roadWidth: 14,
+    shoulder: 2.5,
+    props: [],
+    trackShape: { radius: 250, stretchX: 1.3, harmonics: [], seed: 61 },
+    cityStyle: 'harbor',
+    route: {
+      pitch: 84,
+      corners: [[0, 0, 36], [5, 0, 14], [5, 2, 14], [4, 2, 14], [4, 1, 14], [3, 1, 14], [3, 2, 14], [2, 2, 14], [2, 3, 14], [0, 3, 14]],
+      startDist: 90,
+      plazas: [0],
+      drift: [[3, 6], [8, 9]],
+    },
+    tunnels: [],
+    driftZones: [],
+    fxColor: 0xffc27a,
+    parTime: 215,
+    weather: 'none',
+    traffic: { cars: 8, cross: 3, oncoming: 0.35 },
+    bloom: 0.5,
+    unlockedBy: 'neon_street',
+  },
+  downtown_day: {
+    id: 'downtown_day',
+    skyColor: 0x4fa8ff,
+    horizonColor: 0xdff2ff,
+    fog: { color: 0xcfe6f5, density: 0.0024 },
+    ambientLight: { color: 0xf2f6ff, intensity: 1.3 },
+    sunLight: { color: 0xfff4d8, intensity: 2.5, position: [60, 120, 40] },
+    roadColor: 0x44474f,
+    groundColor: 0x9aa0a8,
+    shoulderColor: 0xb9bcc4,
+    wallColor: 0xc6c9d2,
+    wallGlow: null,
+    laneColor: 0xffffff,
+    friction: 0.98,
+    surface: 'asphalt',
+    roadWidth: 13,
+    shoulder: 3,
+    props: [],
+    trackShape: { radius: 250, stretchX: 1.3, harmonics: [], seed: 71 },
+    cityStyle: 'day',
+    route: {
+      pitch: 80,
+      corners: [[0, 0, 12], [4, 0, 12], [4, 1, 12], [5, 1, 12], [5, 3, 34], [3, 3, 12], [3, 2, 12], [1, 2, 12], [1, 3, 12], [0, 3, 12]],
+      startDist: 108,
+      plazas: [4],
+      drift: [[1, 3], [5, 8]],
+    },
+    tunnels: [],
+    driftZones: [],
+    fxColor: 0xffffff,
+    parTime: 220,
+    weather: 'none',
+    traffic: { cars: 12, cross: 3, oncoming: 0.4 },
+    bloom: 0.22,
+    unlockedBy: 'harbor_docks',
   },
   red_canyon: {
     id: 'red_canyon',

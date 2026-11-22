@@ -19,6 +19,10 @@ jobs:
   build:
     runs-on: ubuntu-latest
     timeout-minutes: 25
+    env:
+      VERSION_CODE: ${{ github.run_number }}
+      # a signed release APK is built only when this repository secret exists (see README)
+      HAS_KEYSTORE: ${{ secrets.ANDROID_KEYSTORE_BASE64 != '' }}
     steps:
       - uses: actions/checkout@v4
 
@@ -46,6 +50,18 @@ jobs:
         working-directory: android
         run: gradle --no-daemon assembleDebug
 
+      - name: Build the signed release APK (when a keystore secret is set)
+        if: env.HAS_KEYSTORE == 'true' && github.event_name != 'pull_request'
+        working-directory: android
+        env:
+          KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          echo "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/release.keystore"
+          KEYSTORE_FILE="$RUNNER_TEMP/release.keystore" gradle --no-daemon assembleRelease
+
       - name: Publish the APK as a pre-release
         if: github.event_name != 'pull_request'
         env:
@@ -62,6 +78,10 @@ jobs:
             gh release create "$TAG" --prerelease --target "$GITHUB_SHA" --title "Pre-release APK (${GITHUB_REF_NAME})" --notes "$NOTES"
           fi
           gh release upload "$TAG" "apk-out/horizon-drive-${SAFE}-debug.apk" --clobber
+          if ls android/app/build/outputs/apk/release/*.apk >/dev/null 2>&1; then
+            cp android/app/build/outputs/apk/release/*.apk "apk-out/horizon-drive-${SAFE}-release.apk"
+            gh release upload "$TAG" "apk-out/horizon-drive-${SAFE}-release.apk" --clobber
+          fi
 
       - name: Check the APK was built (pull requests)
         if: github.event_name == 'pull_request'

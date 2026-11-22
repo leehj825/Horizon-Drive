@@ -14,15 +14,32 @@ function tex(c: HTMLCanvasElement, repeat = false): THREE.CanvasTexture {
   return t;
 }
 
-/** Lit-window facade for neon skyscrapers (used as both map and emissive map). */
-export function windowTexture(seed = 3): THREE.CanvasTexture {
+/** Facade texture (used as map and, for lit styles, emissive map). */
+export function windowTexture(seed = 3, kind: 'neon' | 'harbor' | 'day' = 'neon'): THREE.CanvasTexture {
   const [c, g] = canvas(128, 256);
-  g.fillStyle = '#0b0d1c'; g.fillRect(0, 0, 128, 256);
   let s = seed;
   const rnd = () => { s = (s * 16807) % 2147483647; return s / 2147483647; };
-  const cols = ['#19e6ff', '#ff3fa6', '#ffd24a', '#ffffff', '#8a5bff'];
-  for (let y = 0; y < 32; y++) for (let x = 0; x < 16; x++) {
-    if (rnd() < 0.42) { g.fillStyle = cols[Math.floor(rnd() * cols.length)]; g.fillRect(x * 8 + 1, y * 8 + 2, 5, 4); }
+  if (kind === 'day') {
+    g.fillStyle = '#9fb4c6'; g.fillRect(0, 0, 128, 256);
+    for (let y = 0; y < 32; y++) for (let x = 0; x < 16; x++) {
+      const v = rnd();
+      g.fillStyle = v < 0.2 ? '#e8f4ff' : v < 0.6 ? '#5f93bd' : '#7aa8cc';
+      g.fillRect(x * 8 + 1, y * 8 + 1, 6, 6);
+    }
+    g.fillStyle = 'rgba(255,255,255,0.18)';
+    for (let y = 0; y < 256; y += 32) g.fillRect(0, y, 128, 2);
+  } else if (kind === 'harbor') {
+    g.fillStyle = '#10141e'; g.fillRect(0, 0, 128, 256);
+    const cols = ['#ffb45a', '#ffcf8a', '#ff9a3a', '#e8e4d8'];
+    for (let y = 0; y < 32; y++) for (let x = 0; x < 16; x++) {
+      if (rnd() < 0.3) { g.fillStyle = cols[Math.floor(rnd() * cols.length)]; g.fillRect(x * 8 + 1, y * 8 + 2, 5, 4); }
+    }
+  } else {
+    g.fillStyle = '#0b0d1c'; g.fillRect(0, 0, 128, 256);
+    const cols = ['#19e6ff', '#ff3fa6', '#ffd24a', '#ffffff', '#8a5bff'];
+    for (let y = 0; y < 32; y++) for (let x = 0; x < 16; x++) {
+      if (rnd() < 0.42) { g.fillStyle = cols[Math.floor(rnd() * cols.length)]; g.fillRect(x * 8 + 1, y * 8 + 2, 5, 4); }
+    }
   }
   const t = tex(c, true);
   t.repeat.set(2, 4);

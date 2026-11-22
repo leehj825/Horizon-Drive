@@ -30,13 +30,16 @@ Debug URL flags: `?autostart=neon_street:circuit` (jump into a race), `&level=5`
 
 ## What is in the game
 
-* **4 biomes** with their own fog/lighting/physics: Neon Street (a rainy night **city-grid street circuit**: 76 m blocks, 12 m streets, tight 90° corners, a plaza with a fountain, towers hugging the road, neon signs, drift zones), Red Canyon (dirt), Coast Highway (asphalt, causeway, tunnel), Alpine Pass (snow/ice, falling snow). The open-road tracks are closed `CatmullRomCurve3` splines generated from per-biome harmonics; Neon Street is a rectilinear route over a street grid with rounded corners (`world/gridRoute.ts`, `world/CityBuilder.ts`). Everything downstream (laps, AI, ghosts, traffic) only needs a closed centre line, so more city circuits are just new route specs.
+* **6 biomes** with their own fog/lighting/physics: Harbor Docks (sunset container yards, cranes, lighthouse plaza), Downtown Day (sunny avenues, shop awnings, street trees, square with fountain), Neon Street (a rainy night **city-grid street circuit**: 76 m blocks, 12 m streets, tight 90° corners, a plaza with a fountain, towers hugging the road, neon signs, drift zones), Red Canyon (dirt), Coast Highway (asphalt, causeway, tunnel), Alpine Pass (snow/ice, falling snow). The three city biomes unlock in a chain (Location Lv.2 of the previous one). The open-road tracks are closed `CatmullRomCurve3` splines generated from per-biome harmonics; Neon Street is a rectilinear route over a street grid with rounded corners (`world/gridRoute.ts`, `world/CityBuilder.ts`). Everything downstream (laps, AI, ghosts, traffic) only needs a closed centre line, so more city circuits are just new route specs.
 * **4 race events:** Time Attack (3 laps + your own best-lap **ghost**), 1v1 Duel, 4-Car Circuit, and the **Boss Duel** (unlocked at Location Lv.5).
 * **3-axis progression** persisted in `localStorage`:
   * Vehicle: Engine, Turbo, Tires, Chassis (Lv.0–5).
   * Equipment: 6 swappable parts that change physics *and* attach a visible mesh to the car's slot groups (`suspensionSlot`, `boosterSlot`, `utilitySlot`).
   * Location Lv.1–5: sponsors/gantry/billboards/streetlights → boost pads → jump ramps with bonus coins → grandstands, jumbotron, fireworks. Payout is ×1.0 / 1.25 / 1.5 / 1.75 / 2.0. Higher levels also unlock the next biome (Lv.2) and the boss duel (Lv.5).
 * **Street racing (Neon Street, lighter on Coast Highway):** civilian lane traffic (taxis, vans, sedans) that you must overtake, signalled junctions where **cross traffic** runs the red (the signal heads turn red as a warning), cones and barrels you can plough through, and real crashes: hard hits stun your steering, wreck civilian cars (smoking, hazard lights) and leave them as obstacles. Close passes at speed are **near misses** (nitro + credits). Rivals swerve and brake around traffic.
+* **Garage:** four cars (Street Coupe, Rally Hatch, Road Muscle, Neon Hyper) with different shapes and stats, eight paints, plus the vehicle upgrades and equipment.
+* **Street extras:** oncoming traffic in the left half of the road, road-closed barricades on side streets, smashable cones, barrels, bins and sign posts, wall-scrape sparks.
+* **Onboarding and audio:** first-race how-to-play card; procedural synthwave music per biome plus engine and effects.
 * **Economy:** Credits (CR) + Tech Parts (TP). Near misses, smashed props, coins on track (Credit Magnet pulls them in), placement prizes, drift score, perfect drifts, jump bonuses, par time in Time Attack.
 * **i18n:** English default, Korean optional, switchable at any time (`src/i18n`). A unit test keeps the EN/KO key sets identical.
 * **Polish:** bloom on emissives, skid marks, spark/dust/snow particles, speed/nitro FOV, camera shake, minimap, Web Audio engine + SFX, touch controls, pause, wrong-way hint.
@@ -71,7 +74,16 @@ Elevation and banking, a real drift-chain combo system, slipstream on Coast High
 
 `android/` is a thin full-screen WebView wrapper around the Vite build (same approach as Smash Town): the game is bundled under `assets/www`, served from an https origin so WebGL2, Web Audio and `localStorage` work offline. The Android back button is forwarded to the game as Escape (pause).
 
-GitHub Actions (`.github/workflows/android-debug.yml`) builds it on every push and publishes the APK as a **pre-release** named `apk-<branch>` (replaced by each build). It is debug-signed, so it is for testing, not the Play Store. To build locally you need the Android SDK (platform 34), JDK 17 and Gradle 8.9:
+GitHub Actions (`.github/workflows/android-debug.yml`) builds it on every push and publishes the APK as a **pre-release** named `apk-<branch>` (replaced by each build). The debug APK is debug-signed (testing only). If the repository has the secrets below, CI also builds a **release-signed APK** (`…-release.apk`) with an increasing `versionCode`.
+
+```bash
+# one-time: create a keystore and store it as repository secrets (keep the .jks file and passwords safe!)
+keytool -genkeypair -v -keystore horizon-drive.jks -alias horizon -keyalg RSA -keysize 2048 -validity 10000
+base64 -w0 horizon-drive.jks | gh secret set ANDROID_KEYSTORE_BASE64
+gh secret set ANDROID_KEYSTORE_PASSWORD ; gh secret set ANDROID_KEY_ALIAS ; gh secret set ANDROID_KEY_PASSWORD
+```
+
+The game adapts to weak devices on its own: it lowers the render resolution, then turns off bloom and shadows, to hold a steady frame rate. To build locally you need the Android SDK (platform 34), JDK 17 and Gradle 8.9:
 
 ```bash
 npm ci && npm run build

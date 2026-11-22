@@ -93,10 +93,14 @@ button.card:hover { background: rgba(255, 255, 255, 0.1); }
 .card small { color: var(--dim); font-size: 12px; line-height: 1.35; }
 .card .lv { font-size: 12px; color: var(--gold); font-weight: 700; }
 .card.biome.neon_street { border-left: 4px solid var(--pink); }
+.card.biome.harbor_docks { border-left: 4px solid #f2a65a; }
+.card.biome.downtown_day { border-left: 4px solid #4fa8ff; }
 .card.biome.red_canyon { border-left: 4px solid #ff8c42; }
 .card.biome.coast_highway { border-left: 4px solid #4cc9f0; }
 .card.biome.alpine_pass { border-left: 4px solid #cfe9f2; }
 .card.loc.neon_street { border-left: 4px solid var(--pink); }
+.card.loc.harbor_docks { border-left: 4px solid #f2a65a; }
+.card.loc.downtown_day { border-left: 4px solid #4fa8ff; }
 .card.loc.red_canyon { border-left: 4px solid #ff8c42; }
 .card.loc.coast_highway { border-left: 4px solid #4cc9f0; }
 .card.loc.alpine_pass { border-left: 4px solid #cfe9f2; }

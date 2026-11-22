@@ -108,6 +108,8 @@ export const TRANSLATIONS = {
     },
     biomes: {
       neon_street: { name: 'Neon Street', desc: 'Tight midnight avenues lit by cyber neon.' },
+      harbor_docks: { name: 'Harbor Docks', desc: 'Container mazes and quay straights under a burning sunset.' },
+      downtown_day: { name: 'Downtown Day', desc: 'Sunlit avenues, shop fronts and a grand square at full speed.' },
       red_canyon: { name: 'Red Canyon', desc: 'Wide sunlit dirt trails through towering mesas.' },
       coast_highway: { name: 'Coast Highway', desc: 'High-speed oceanfront straights and a tunnel.' },
       alpine_pass: { name: 'Alpine Pass', desc: 'Treacherous icy switchbacks in the high peaks.' },
@@ -250,6 +252,8 @@ export const TRANSLATIONS = {
     },
     biomes: {
       neon_street: { name: '네온 스트릿', desc: '네온 불빛이 가득한 밤의 도심 급커브 코스.' },
+      harbor_docks: { name: '하버 독스', desc: '불타는 노을 아래 컨테이너 미로와 부두 직선 코스.' },
+      downtown_day: { name: '다운타운 데이', desc: '햇살 가득한 대로와 상점가, 대광장을 전속력으로.' },
       red_canyon: { name: '레드 캐니언', desc: '거대한 붉은 협곡을 가로지르는 광활한 비포장 도로.' },
       coast_highway: { name: '코스트 하이웨이', desc: '에메랄드빛 해안을 따라 달리는 초고속 직선과 터널.' },
       alpine_pass: { name: '알파인 패스', desc: '미끄러운 빙판과 설원이 펼쳐진 산악 다운힐 코스.' },
