@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+  <meta name="theme-color" content="#0b0d1c" />
+  <title>Horizon Drive</title>
+</head>
+<body>
+  <canvas id="game"></canvas>
+  <div id="ui"></div>
+  <div id="touch" hidden>
+    <div class="t-left">
+      <button data-vbtn="left" aria-label="left">◀</button>
+      <button data-vbtn="right" aria-label="right">▶</button>
+    </div>
+    <div class="t-right">
+      <button data-vbtn="nitro" class="nitro" aria-label="nitro">NOS</button>
+      <button data-vbtn="drift" class="drift" aria-label="drift">DRIFT</button>
+      <button data-vbtn="brake" class="brake" aria-label="brake">BRAKE</button>
+    </div>
+  </div>
+  <script type="module" src="/src/main.ts"></script>
+</body>
+</html>
