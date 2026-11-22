@@ -65,3 +65,14 @@ sim/                          headless simulations + browser smoke scripts (Play
 ## Ideas for later
 
 Elevation and banking, a real drift-chain combo system, slipstream on Coast Highway, daily seeded tracks, replay/photo mode, online ghosts.
+
+## Android pre-release APK
+
+`android/` is a thin full-screen WebView wrapper around the Vite build (same approach as Smash Town): the game is bundled under `assets/www`, served from an https origin so WebGL2, Web Audio and `localStorage` work offline. The Android back button is forwarded to the game as Escape (pause).
+
+GitHub Actions (`.github/workflows/android-debug.yml`) builds it on every push and publishes the APK as a **pre-release** named `apk-<branch>` (replaced by each build). It is debug-signed, so it is for testing, not the Play Store. To build locally you need the Android SDK (platform 34), JDK 17 and Gradle 8.9:
+
+```bash
+npm ci && npm run build
+cd android && gradle assembleDebug   # app/build/outputs/apk/debug/*.apk
+```
