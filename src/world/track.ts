@@ -203,6 +203,14 @@ export class Track {
     return m;
   }
 
+  /** Largest |curvature| within `dist` metres behind sample i (for drivers going against the lap direction). */
+  curvatureBehind(i: number, dist: number): number {
+    const steps = Math.ceil(dist / (this.length / this.n));
+    let m = 0;
+    for (let k = 0; k <= steps; k += 2) m = Math.max(m, Math.abs(this.curv[this.wrap(i - k)]));
+    return m;
+  }
+
   /** Lap distances of the `count` straightest stretches, at least `gap` metres apart. */
   pickStraights(count: number, gap: number, avoid: number[] = []): number[] {
     const cand: { s: number; c: number }[] = [];

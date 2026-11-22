@@ -1,6 +1,7 @@
 import { BIOME_ORDER, BIOME_PRESETS, type BiomeId } from '../data/biomes';
 import { EQUIPMENT_LIST, SLOTS, type EquipmentId, type SlotId } from '../data/equipment';
-import { buyEquipment, buyUpgrade, carSetup, isBiomeUnlocked, modeAvailable, toggleEquip, upgradeLocation, type Payout, type RaceMode } from '../data/progression';
+import { CAR_IDS, CARS, PAINTS, type CarId } from '../data/cars';
+import { buyCar, buyEquipment, buyUpgrade, carSetup, selectCar, isBiomeUnlocked, modeAvailable, toggleEquip, upgradeLocation, type Payout, type RaceMode } from '../data/progression';
 import type { SaveState } from '../data/saveState';
 import { MAX_LOCATION_LEVEL, MAX_UPGRADE, UPGRADE_IDS, locationCost, payoutMultiplier, upgradeCost, type UpgradeId } from '../data/upgrades';
 import type { I18n } from '../i18n/i18n';
@@ -86,6 +87,9 @@ export class Menus {
       }
       case 'mode': if (modeAvailable(d, d.selectedBiome, arg as RaceMode)) { sfx.click(); this.mode = arg as RaceMode; this.render(); } return;
       case 'start': this.host.startRace(d.selectedBiome, this.mode); return;
+      case 'buyCar': if (buyCar(d, arg as CarId) === 'ok') { sfx.buy(); save.save(); this.host.refreshCar(); } return;
+      case 'selCar': if (selectCar(d, arg as CarId)) { sfx.click(); save.save(); this.host.refreshCar(); } return;
+      case 'paint': d.paint = Number(arg); sfx.click(); save.save(); this.host.refreshCar(); return;
       case 'buyUp': if (buyUpgrade(d, arg as UpgradeId) === 'ok') { sfx.buy(); save.save(); this.host.refreshCar(); } return;
       case 'buyEq': if (buyEquipment(d, arg as EquipmentId) === 'ok') { sfx.buy(); toggleEquip(d, arg as EquipmentId); save.save(); this.host.refreshCar(); } return;
       case 'equip': if (toggleEquip(d, arg as EquipmentId)) { sfx.click(); save.save(); this.host.refreshCar(); } return;
@@ -213,7 +217,22 @@ export class Menus {
       return `<div class="slot"><h4>${slotName[slot]}</h4>${items}</div>`;
     }).join('');
     const kmh = Math.round(stats.maxSpeed * 3.6);
+    const cars = CAR_IDS.map((id) => {
+      const c = CARS[id];
+      const owned = d.carsOwned.includes(id);
+      const on = d.car === id;
+      const m = c.mult;
+      const pct = (v: number) => (v >= 1 ? '+' : '') + Math.round((v - 1) * 100) + '%';
+      const btn = owned
+        ? `<button class="btn sm ${on ? 'sel' : ''}" data-act="selCar" data-arg="${id}">${on ? this.t('ui.selected') : this.t('ui.select')}</button>`
+        : `<button class="btn sm primary" data-act="buyCar" data-arg="${id}" ${d.credits < c.cost ? 'disabled' : ''}>${c.cost.toLocaleString()} ${this.t('ui.credits')}</button>`;
+      return `<div class="card car ${on ? 'sel' : ''}"><b>${this.t('cars.' + id + '.name')}</b><small>${this.t('cars.' + id + '.desc')}</small>
+        <span class="lv">TOP ${pct(m.maxSpeed)} · ACC ${pct(m.accel)} · GRIP ${pct(m.grip)}</span>${btn}</div>`;
+    }).join('');
+    const swatches = PAINTS.map((p, i) => `<button class="swatch ${d.paint === i ? 'on' : ''}" data-act="paint" data-arg="${i}" style="background:#${p[0].toString(16).padStart(6, '0')};box-shadow:inset 0 -6px 0 #${p[1].toString(16).padStart(6, '0')}" aria-label="paint ${i + 1}"></button>`).join('');
     return `<div class="panel wide garage">${this.header(this.t('ui.garage'))}
+      <h3>${this.t('ui.vehicle')}</h3><div class="cards cars">${cars}</div>
+      <div class="paints"><span>${this.t('ui.paint')}</span>${swatches}</div>
       <div class="statbar"><span>${kmh} ${this.t('ui.kmh')}</span><span>ACC ${stats.accel.toFixed(0)}</span><span>GRIP ${stats.grip.toFixed(1)}</span><span>NOS ×${(stats.nitroRate * mods.nitroDurationMul).toFixed(2)}</span></div>
       <div class="cols"><div><h3>${this.t('ui.vehicleUpgrades')}</h3>${rows}</div><div><h3>${this.t('ui.modular')}</h3>${eq}</div></div>
     </div>`;

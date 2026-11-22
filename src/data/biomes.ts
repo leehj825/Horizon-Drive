@@ -51,7 +51,7 @@ export interface BiomePreset {
   /** Falling particles around the camera. */
   weather: 'none' | 'snow' | 'dust' | 'rain';
   /** Civilian traffic: slow lane cars, cross traffic at signalled junctions. */
-  traffic: { cars: number; cross: number };
+  traffic: { cars: number; cross: number; /** share of lane cars driving the opposite way (0..1) */ oncoming: number };
   /** Bloom strength on emissive elements. */
   bloom: number;
   /** Which biome must be Lv.2+ to unlock this one. */
@@ -97,7 +97,7 @@ export const BIOME_PRESETS: Record<BiomeId, BiomePreset> = {
     fxColor: 0x19e6ff,
     parTime: 235,
     weather: 'rain',
-    traffic: { cars: 11, cross: 3 },
+    traffic: { cars: 11, cross: 3, oncoming: 0.4 },
     bloom: 0.85,
     unlockedBy: null,
   },
@@ -130,7 +130,7 @@ export const BIOME_PRESETS: Record<BiomeId, BiomePreset> = {
     fxColor: 0xe0a070,
     parTime: 165,
     weather: 'dust',
-    traffic: { cars: 0, cross: 0 },
+    traffic: { cars: 0, cross: 0, oncoming: 0 },
     bloom: 0.35,
     unlockedBy: 'neon_street',
   },
@@ -163,7 +163,7 @@ export const BIOME_PRESETS: Record<BiomeId, BiomePreset> = {
     fxColor: 0xffffff,
     parTime: 205,
     weather: 'none',
-    traffic: { cars: 5, cross: 0 },
+    traffic: { cars: 5, cross: 0, oncoming: 0 },
     bloom: 0.45,
     unlockedBy: 'red_canyon',
   },
@@ -196,7 +196,7 @@ export const BIOME_PRESETS: Record<BiomeId, BiomePreset> = {
     fxColor: 0xffffff,
     parTime: 165,
     weather: 'snow',
-    traffic: { cars: 0, cross: 0 },
+    traffic: { cars: 0, cross: 0, oncoming: 0 },
     bloom: 0.3,
     unlockedBy: 'coast_highway',
   },

@@ -157,3 +157,14 @@ body.is-touch .coins { display: none; }
 }
 
 .hud-center.crash { color: #ff4f5e; text-shadow: 0 0 30px rgba(255, 60, 70, 0.7); font-size: clamp(44px, 10vw, 100px); }
+
+.cards.cars { grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); }
+.card.car small { min-height: 2.6em; }
+.paints { display: flex; align-items: center; gap: 8px; margin: 10px 0 2px; flex-wrap: wrap; color: var(--dim); font-size: 13px; }
+.swatch { width: 28px; height: 28px; border-radius: 50%; border: 2px solid rgba(255, 255, 255, 0.25); padding: 0; }
+.swatch.on { border-color: #fff; transform: scale(1.12); }
+
+#tutorial { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; background: rgba(5, 7, 18, 0.62); padding: 16px; z-index: 5; }
+#tutorial .panel { width: min(520px, 100%); }
+#tutorial h2 { margin: 0 0 8px; letter-spacing: 0.12em; }
+#tutorial p { margin: 10px 0; line-height: 1.45; color: var(--text); }

@@ -262,6 +262,8 @@ export class CarController {
           }
         }
         fx.spark(this.position.x - fx_ * 1.5, this.position.z - fz_ * 1.5, this.vx, this.vz, 1);
+      } else if (this.wallContact > 0 && this.speed > 8) {
+        fx.spark(this.position.x, this.position.z, this.vx, this.vz, 2);
       } else if (this.offroad && this.speed > 10) {
         fx.spark(this.position.x - fx_ * 1.5, this.position.z - fz_ * 1.5, this.vx, this.vz, 1);
       }

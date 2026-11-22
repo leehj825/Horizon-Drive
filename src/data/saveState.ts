@@ -1,4 +1,5 @@
 import { BIOME_ORDER, type BiomeId } from './biomes';
+import type { CarId } from './cars';
 import type { EquipmentId, Loadout } from './equipment';
 import { UPGRADE_IDS, type LocationLevels, type UpgradeLevels } from './upgrades';
 
@@ -26,6 +27,10 @@ export interface SaveData {
   lang: 'en' | 'ko';
   muted: boolean;
   tipShown: boolean;
+  tutorialSeen: boolean;
+  car: CarId;
+  carsOwned: CarId[];
+  paint: number;
 }
 
 const KEY = 'hd_save_v1';
@@ -51,6 +56,10 @@ function fresh(): SaveData {
     lang: (typeof navigator !== 'undefined' && navigator.language?.startsWith('ko')) ? 'ko' : 'en',
     muted: false,
     tipShown: false,
+    tutorialSeen: false,
+    car: 'coupe',
+    carsOwned: ['coupe'],
+    paint: 0,
   };
 }
 

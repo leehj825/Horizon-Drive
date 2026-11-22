@@ -8,6 +8,7 @@ import { along, instanceParts, mulberry32, scatter, stdMat, unitBox, unitCone, u
 import { adTexture, bannerTexture, checkerTexture, chevronTexture, glowTexture, jumbotronTexture, kerbTexture, windowTexture } from './textures';
 import type { Track } from './track';
 import { buildCity } from './CityBuilder';
+import { mergeStatic } from './mergeStatic';
 
 export type SignalState = 'green' | 'amber' | 'red';
 
@@ -189,6 +190,28 @@ export function buildTrack(track: Track, preset: BiomePreset, level: number): Bu
       { geo: unitCyl(0.12, 0.14, 6), mat: poleMat, local: new THREE.Matrix4().compose(new THREE.Vector3(0, 0, 0), new THREE.Quaternion(), new THREE.Vector3(1, 5.2, 1)) },
       { geo: unitBox(), mat: poleMat.clone(), local: new THREE.Matrix4().compose(new THREE.Vector3(0, 4.85, 0), new THREE.Quaternion(), new THREE.Vector3(0.8, 0.8, 0.5)) },
     ]);
+  }
+  // ---- road-closed barricades across the side streets the race does not use ----
+  if (city) {
+    const signalled = intersections.map((it) => it.s);
+    const closed = track.crossings.filter((c) => !signalled.some((q) => Math.abs(q - c) < 5));
+    const barP: Placement[] = [];
+    const lampP: Placement[] = [];
+    for (const c of closed) for (const side of [-1, 1]) {
+      for (let k = 0; k < 4; k++) {
+        const sp = track.pointAt(c - 4.5 + k * 3, side * (W + 0.9));
+        const i = track.indexAt(c);
+        barP.push({ x: sp.x, y: 0, z: sp.z, rot: track.heading(i), sx: 0.5, sy: 1.1, sz: 2.9, color: new THREE.Color(k % 2 ? 0xf4f4f4 : 0xd8382e) });
+      }
+      for (const k of [-4.5, 4.5]) {
+        const sp = track.pointAt(c + k, side * (W + 0.9));
+        lampP.push({ x: sp.x, y: 1.1, z: sp.z, rot: track.heading(track.indexAt(c)), sx: 0.4, sy: 0.4, sz: 0.4 });
+      }
+    }
+    wantInst(barP, [{ geo: unitBox(), mat: stdMat(0xffffff, { roughness: 0.6 }), colored: true, cast: true }]);
+    const blink = new THREE.MeshBasicMaterial({ color: 0xffa21a });
+    wantInst(lampP, [{ geo: unitBox(), mat: blink }]);
+    animators.push((_dt, time) => { blink.color.setScalar(0); blink.color.setHex(Math.sin(time * 8) > 0 ? 0xffa21a : 0x3a2204); });
   }
   /** Lap ranges that are not open junction gaps (for wall decoration strips). */
   const solidRanges = (): [number, number][] => {
@@ -470,6 +493,7 @@ export function buildTrack(track: Track, preset: BiomePreset, level: number): Bu
         const ap = track.pointAt(s - 22 - k * 9, lat);
         a.position.set(ap.x, 1.3, ap.z);
         a.rotation.y = track.heading(i);
+        a.userData.noMerge = true;
         group.add(a);
         arrows.push({ m: a, base: k });
       }
@@ -540,6 +564,8 @@ export function buildTrack(track: Track, preset: BiomePreset, level: number): Bu
     group.add(fireworks.ps.points);
     disposables.push(fireworks.ps);
   }
+
+  mergeStatic(group, disposables);
 
   return {
     group, features, bonusCoins, fireworks, intersections,

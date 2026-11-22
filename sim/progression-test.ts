@@ -1,7 +1,7 @@
 import { strict as assert } from 'node:assert';
 import { BIOME_ORDER } from '../src/data/biomes';
 import { modsFor } from '../src/data/equipment';
-import { applyPayout, buyEquipment, buyUpgrade, computePayout, isBiomeUnlocked, modeAvailable, toggleEquip, upgradeLocation } from '../src/data/progression';
+import { applyPayout, buyCar, selectCar, carSetup, buyEquipment, buyUpgrade, computePayout, isBiomeUnlocked, modeAvailable, toggleEquip, upgradeLocation } from '../src/data/progression';
 import { SaveState } from '../src/data/saveState';
 import { BASE_STATS, featuresFor, locationCost, payoutMultiplier, tunedStats } from '../src/data/upgrades';
 import { I18n } from '../src/i18n/i18n';
@@ -68,6 +68,20 @@ const ta = computePayout(s2, { ...r, mode: 'time_attack', time: 100 });
 assert.ok(ta.beatPar && ta.techParts === 1);
 const lose = computePayout(s2, { ...r, position: 4, driftScore: 0, perfectDrifts: 0, coins: 0 });
 assert.equal(lose.credits, 90); assert.equal(lose.techParts, 0);
+
+// cars
+const sc = new SaveState().data;
+assert.equal(buyCar(sc, 'hatch'), 'poor');
+sc.credits = 5000;
+assert.equal(buyCar(sc, 'hatch'), 'ok');
+assert.equal(sc.car, 'hatch');
+assert.equal(buyCar(sc, 'hatch'), 'owned');
+assert.ok(!selectCar(sc, 'hyper'));
+assert.ok(selectCar(sc, 'coupe'));
+const coupe = carSetup(sc).stats;
+selectCar(sc, 'hatch');
+const hatch = carSetup(sc).stats;
+assert.ok(hatch.grip > coupe.grip && hatch.maxSpeed < coupe.maxSpeed);
 
 // i18n: EN/KO parity and fallback
 function keys(o: unknown, pre = ''): string[] {

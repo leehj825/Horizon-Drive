@@ -3,9 +3,11 @@ import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer
 import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
 import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
+import { Music } from './audio/Music';
 import { Synth } from './audio/Synth';
 import { CameraRig } from './camera/CameraRig';
 import { BIOME_PRESETS, type BiomeId } from './data/biomes';
+import { CARS, PAINTS } from './data/cars';
 import { applyPayout, carSetup, computePayout, isBiomeUnlocked, type RaceMode } from './data/progression';
 import { SaveState } from './data/saveState';
 import { I18n } from './i18n/i18n';
@@ -40,6 +42,7 @@ export class Game implements MenuHost {
   readonly save = new SaveState();
   readonly i18n: I18n;
   readonly sfx = new Synth();
+  readonly music = new Music(this.sfx);
   readonly input = new Input();
   readonly hud: Hud;
   readonly menus: Menus;
@@ -47,7 +50,10 @@ export class Game implements MenuHost {
 
   world: BiomeWorld | null = null;
   player!: CarController;
-  playerModel: CarModel;
+  playerModel!: CarModel;
+  private modelKey = '';
+  private holdRace = false;
+  private tutorialEl: HTMLElement | null = null;
   race: RaceManager | null = null;
   state: State = 'menu';
   private acc = 0;
@@ -65,6 +71,10 @@ export class Game implements MenuHost {
   private menuShift = 0;
   private prevNitro = 0;
   private wrongWayT = 0;
+  private frameEma = 1 / 60;
+  private adaptT = 0;
+  private adaptive = !navigator.webdriver;
+  private readonly maxPixelRatio: number;
   private wrongWayCool = 0;
   private prevLap = -1;
   private levelOverride: number | null = null;
@@ -75,6 +85,7 @@ export class Game implements MenuHost {
   constructor(private canvas: HTMLCanvasElement, ui: HTMLElement, opts: GameOptions = {}) {
     const coarse = matchMedia('(pointer: coarse)').matches || new URLSearchParams(location.search).has('touch');
     this.quality = { shadows: !coarse, bloom: !coarse, pixelRatio: Math.min(devicePixelRatio || 1, coarse ? 1.5 : 2), ...opts.quality };
+    this.maxPixelRatio = this.quality.pixelRatio;
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: !coarse, powerPreference: 'high-performance' });
     this.renderer.setPixelRatio(this.quality.pixelRatio);
     this.renderer.shadowMap.enabled = this.quality.shadows;
@@ -90,8 +101,7 @@ export class Game implements MenuHost {
     this.i18n.onChange(() => { this.hud.relabel(); document.documentElement.lang = this.i18n.lang; });
     document.documentElement.lang = this.i18n.lang;
 
-    this.playerModel = buildCar({ color: 0xff5a36, accent: 0x19e6ff });
-    this.scene.add(this.playerModel.root);
+    this.buildPlayerModel();
     this.levelOverride = opts.level ?? null;
     if (opts.autopilot) { this.autopilot = new AIDriver(0.97, 0); this.autopilot.avoid = 'swerve'; }
 
@@ -117,7 +127,7 @@ export class Game implements MenuHost {
     addEventListener('resize', () => this.resize());
     this.sfx.setMuted(this.save.data.muted);
     addEventListener('blur', () => { if (this.state === 'race') this.togglePause(); });
-    const unlock = () => { this.sfx.resume(); };
+    const unlock = () => { this.sfx.resume(); this.music.start(); this.updateMusic(); };
     addEventListener('pointerdown', unlock);
     addEventListener('keydown', unlock);
 
@@ -204,10 +214,27 @@ export class Game implements MenuHost {
     this.loadWorld(id);
   }
 
+  /** (Re)build the player's 3D car for the selected car and paint. */
+  private buildPlayerModel(): void {
+    const d = this.save.data;
+    const [color, accent] = PAINTS[d.paint] ?? PAINTS[0];
+    const old = this.playerModel;
+    const pos = old?.root.position.clone();
+    const rot = old?.root.rotation.y ?? 0;
+    this.playerModel = buildCar({ color, accent, shape: CARS[d.car].shape });
+    if (pos) { this.playerModel.root.position.copy(pos); this.playerModel.root.rotation.y = rot; }
+    this.scene.add(this.playerModel.root);
+    this.modelKey = `${d.car}:${d.paint}`;
+    if (old) { old.root.removeFromParent(); old.dispose(); }
+    if (this.player) this.player.model = this.playerModel;
+  }
+
   refreshCar(): void {
-    const { stats, mods } = carSetup(this.save.data);
+    const d = this.save.data;
+    if (this.modelKey !== `${d.car}:${d.paint}`) this.buildPlayerModel();
+    const { stats, mods } = carSetup(d);
     this.player.stats = stats; this.player.mods = mods;
-    this.playerModel.applyLoadout(this.save.data.loadout);
+    this.playerModel.applyLoadout(d.loadout);
   }
 
   setShowroom(close: boolean): void { this.showroomClose = close; }
@@ -252,19 +279,21 @@ export class Game implements MenuHost {
       onWreck: (c) => { this.hud.toast(this.i18n.t('ui.wreck'), 'gold', 1000); for (let i = 0; i < 14; i++) world.particles.emit(c.position.x, 0.8, c.position.z, (Math.random() - 0.5) * 9, 2 + Math.random() * 5, (Math.random() - 0.5) * 9, 0xffb347, 1.1, 0.6, 14); },
       onNearMiss: () => { this.hud.toast(this.i18n.t('ui.nearMiss', { n: 10 }), 'cyan', 1100); this.sfx.coin(); },
       onSmash: (kind, x, z, byPlayer) => {
-        if (byPlayer) { this.smashCount++; this.rig.shake(kind ? 0.22 : 0.1); this.sfx.wall(kind ? 4 : 1.5); }
-        for (let i = 0; i < 6; i++) world.particles.emit(x, 0.4, z, (Math.random() - 0.5) * 6, 1 + Math.random() * 3, (Math.random() - 0.5) * 6, kind ? 0xff8a3a : 0xffffff, 0.9, 0.5, 12);
+        if (byPlayer) { this.smashCount++; this.rig.shake(kind === 1 ? 0.22 : 0.12); this.sfx.wall(kind === 1 ? 4 : 2); }
+        for (let i = 0; i < 6; i++) world.particles.emit(x, 0.4, z, (Math.random() - 0.5) * 6, 1 + Math.random() * 3, (Math.random() - 0.5) * 6, kind === 1 ? 0xff8a3a : kind === 3 ? 0x7fc8ff : 0xffffff, 0.9, 0.5, 12);
       },
     }, mode === 'time_attack' ? (this.save.data.ghosts[biome] ?? null) : null, skills[mode], this.scene,
     world.preset.traffic.cars > 0 || world.intersections.length > 0 ? new Traffic(world, this.scene, world.intersections) : null, world.props);
     this.race.ghost?.model.applyLoadout({});
     this.state = 'race';
+    this.updateMusic();
     this.menus.show('none');
     this.hud.setVisible(true);
     this.hud.clearToasts();
     this.rig.snap();
     document.body.classList.add('racing');
-    if (!this.save.data.tipShown) { this.hud.toast(this.i18n.t('ui.hintFirst'), '', 4500); this.save.data.tipShown = true; this.save.save(); }
+    if (!this.save.data.tutorialSeen && !navigator.webdriver) this.showTutorial();
+    else if (!this.save.data.tipShown) { this.hud.toast(this.i18n.t('ui.hintFirst'), '', 4500); this.save.data.tipShown = true; this.save.save(); }
   }
 
   resume(): void {
@@ -279,6 +308,7 @@ export class Game implements MenuHost {
     this.race?.dispose();
     this.race = null;
     this.state = 'menu';
+    this.updateMusic();
     this.hud.setVisible(false);
     document.body.classList.remove('racing');
     this.loadWorld(this.save.data.selectedBiome);
@@ -327,6 +357,11 @@ export class Game implements MenuHost {
     this.tick(dt);
   }
 
+  private renderOnly(dt: number): void {
+    this.world!.update(dt, this.time, this.player.position, this.camera.position);
+    if (this.composer) this.composer.render(dt); else this.renderer.render(this.scene, this.camera);
+  }
+
   /** One rendered frame: input, fixed-step simulation, visuals. Exposed for tests. */
   tick(dt: number): void {
     this.time += dt;
@@ -342,6 +377,7 @@ export class Game implements MenuHost {
       const race = this.race;
       if (this.autopilot) { this.autopilot.others = race.everyone; ctl = this.autopilot.update(this.player, dt); }
       if (inp.consume('KeyR') && race.phase === 'racing') this.player.respawn();
+      if (this.holdRace) { if (inp.consume('Enter') || inp.consume('Space')) this.dismissTutorial(); this.acc = 0; this.rig.update(dt, this.player); return this.renderOnly(dt); }
       this.ctlCache = ctl;
       this.acc += dt;
       let steps = 0;
@@ -356,7 +392,7 @@ export class Game implements MenuHost {
     } else if (this.state === 'menu' || this.state === 'results') {
       inp.consume('KeyR');
       const car = this.playerModel.root.position;
-      this.rig.orbit(dt, car, this.showroomClose ? 6.2 : 10, this.showroomClose ? 2.2 : 3.6);
+      this.rig.orbit(dt, car, this.showroomClose ? 8.6 : 10, this.showroomClose ? 2.6 : 3.6);
       this.applyMenuShift(true);
     } else {
       this.rig.update(0, this.player); // paused: hold camera
@@ -372,6 +408,7 @@ export class Game implements MenuHost {
       if (this.race.finishHold > 2.2) {
         this.resultsShown = true;
         this.state = 'results';
+        this.updateMusic();
         this.hud.setVisible(false);
         document.body.classList.remove('racing');
         this.menus.show('results', this.pendingResults);
@@ -379,12 +416,68 @@ export class Game implements MenuHost {
     }
 
     if (this.composer) this.composer.render(dt); else this.renderer.render(this.scene, this.camera);
+    this.adaptQuality(dt);
+  }
+
+  private showTutorial(): void {
+    this.holdRace = true;
+    const t = (k: string) => this.i18n.t('tutorial.' + k);
+    const el = document.createElement('div');
+    el.id = 'tutorial';
+    el.innerHTML = `<div class="panel"><h2>${t('title')}</h2>
+      <p>🏎️ ${this.input.touch ? t('driveTouch') : t('drive')}</p><p>💨 ${t('drift')}</p><p>🔥 ${t('nitro')}</p><p>⚠️ ${t('hazards')}</p>
+      <button class="btn primary big">${t('start')}</button></div>`;
+    document.getElementById('ui')!.appendChild(el);
+    this.tutorialEl = el;
+    el.querySelector('button')!.addEventListener('click', () => this.dismissTutorial());
+    this.hud.clearCenter();
+  }
+
+  private dismissTutorial(): void {
+    if (!this.holdRace) return;
+    this.holdRace = false;
+    this.tutorialEl?.remove(); this.tutorialEl = null;
+    this.save.data.tutorialSeen = true;
+    this.save.save();
+    this.sfx.resume(); this.music.start();
+  }
+
+  private updateMusic(): void {
+    const racing = this.state === 'race' || this.state === 'paused';
+    this.music.setTheme(racing || this.state === 'results' ? this.lastBiome : 'menu', racing ? 1 : 0.5);
+  }
+
+  /** Adaptive resolution: trade pixels (then bloom, then shadows) for a steady frame rate on weak devices. */
+  private adaptQuality(dt: number): void {
+    if (!this.adaptive || document.hidden || dt <= 0 || dt > 0.25) return;
+    this.frameEma += (dt - this.frameEma) * 0.05;
+    this.adaptT += dt;
+    if (this.adaptT < 2.5) return;
+    this.adaptT = 0;
+    const q = this.quality;
+    if (this.frameEma > 1 / 42) {
+      if (q.pixelRatio > 0.75) q.pixelRatio = Math.max(0.75, q.pixelRatio * 0.82);
+      else if (q.bloom) { q.bloom = false; this.rebuildPostFx(); }
+      else if (q.shadows) { q.shadows = false; this.renderer.shadowMap.enabled = false; if (this.world) this.world.sun.castShadow = false; }
+      else return;
+      this.applyPixelRatio();
+      this.frameEma = 1 / 50; // give the new setting a fair chance
+    } else if (this.frameEma < 1 / 57 && q.pixelRatio < this.maxPixelRatio) {
+      q.pixelRatio = Math.min(this.maxPixelRatio, q.pixelRatio * 1.12);
+      this.applyPixelRatio();
+    }
+  }
+
+  private applyPixelRatio(): void {
+    this.renderer.setPixelRatio(this.quality.pixelRatio);
+    this.composer?.setPixelRatio(this.quality.pixelRatio);
+    this.resize();
   }
 
   /** Slides the 3D view sideways so the car stays visible beside the menu panel. */
   private applyMenuShift(on: boolean): void {
     const w = this.canvas.clientWidth || innerWidth, h = this.canvas.clientHeight || innerHeight;
-    const target = on && w > 900 ? (this.showroomClose ? 0.22 : this.menus.screen === 'main' ? 0.17 : 0.1) : 0;
+    const target = on && w > 900 ? (this.showroomClose ? 0.27 : this.menus.screen === 'main' ? 0.17 : 0.1) : 0;
     this.menuShift += (target - this.menuShift) * 0.12;
     if (Math.abs(this.menuShift) < 0.002 && target === 0) { this.menuShift = 0; this.camera.clearViewOffset(); return; }
     this.camera.setViewOffset(w, h, -w * this.menuShift, 0, w, h);

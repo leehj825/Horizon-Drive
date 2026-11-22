@@ -20,6 +20,7 @@ export interface TrafficCar {
   /** Intersection index for cross traffic. */
   junction: number;
   dead: boolean;
+  oncoming: boolean;
 }
 
 const BODY_COLORS = [0xd9dde6, 0x2c3a52, 0xb5342b, 0xe0b53a, 0x3b7a57, 0x6e6f78, 0x8a5a9e, 0x1f2430];
@@ -39,7 +40,9 @@ export class Traffic {
   private phase: number[] = [];
   private lastState: SignalState[] = [];
   private spawned: boolean[] = [];
-  private lanes = [-0.5, 0.45, -0.18, 0.2];
+  /** Lane centres as a fraction of the half road width: right half with the flow, left half oncoming. */
+  private lanes = [-0.62, -0.34];
+  private lanesOncoming = [0.34, 0.62];
   events: TrafficEvents = {};
 
   constructor(private world: BiomeWorld, private parent: THREE.Object3D | null, private intersections: Intersection[]) {
@@ -49,7 +52,7 @@ export class Traffic {
     const first = 130, last = L - 120;
     for (let k = 0; k < n; k++) {
       const s = first + ((last - first) * (k + 0.2 + this.rng() * 0.6)) / n;
-      this.spawnLane(s);
+      this.spawnLane(s, this.rng() < world.preset.traffic.oncoming);
     }
     intersections.forEach((_, i) => { this.phase.push(this.rng() * CYCLE); this.lastState.push('green'); this.spawned.push(false); void i; });
   }
@@ -61,19 +64,22 @@ export class Traffic {
     return m;
   }
 
-  private spawnLane(s: number): TrafficCar {
+  private spawnLane(s: number, oncoming = false): TrafficCar {
     const w = this.world;
     const hw = w.track.halfWidth;
-    const lane = this.lanes[Math.floor(this.rng() * this.lanes.length)] * hw;
+    const set = oncoming ? this.lanesOncoming : this.lanes;
+    const lane = set[Math.floor(this.rng() * set.length)] * hw;
     const kind = KINDS[Math.floor(this.rng() * KINDS.length)];
     const color = kind === 'taxi' ? 0xf0c020 : BODY_COLORS[Math.floor(this.rng() * BODY_COLORS.length)];
     const car = new CarController(w.track, { ...BASE_STATS }, NO_MODS, this.model(kind, color));
     car.features = { ramps: [], pads: [] };
     car.placeOnTrack(s, lane);
+    if (oncoming) car.heading += Math.PI;
     const skill = 0.27 + this.rng() * 0.2;
     const ai = new AIDriver(skill, lane);
     ai.avoid = 'brake';
-    const t: TrafficCar = { car, ai, kind: 'lane', wrecked: false, wreckT: 0, cruise: skill * BASE_STATS.maxSpeed, nearCool: 0, smokeAcc: 0, junction: -1, dead: false };
+    ai.reverse = oncoming;
+    const t: TrafficCar = { car, ai, kind: 'lane', wrecked: false, wreckT: 0, cruise: skill * BASE_STATS.maxSpeed, nearCool: 0, smokeAcc: 0, junction: -1, dead: false, oncoming };
     this.cars.push(t);
     car.vx = Math.sin(car.heading) * t.cruise * 0.9; car.vz = Math.cos(car.heading) * t.cruise * 0.9;
     this.refreshOthers();
@@ -96,7 +102,7 @@ export class Traffic {
     car.heading = Math.atan2(-it.cx * side, -it.cz * side);
     const cruise = 12 + this.rng() * 5;
     car.vx = Math.sin(car.heading) * cruise; car.vz = Math.cos(car.heading) * cruise;
-    this.cars.push({ car, ai: null, kind: 'cross', wrecked: false, wreckT: 0, cruise, nearCool: 0, smokeAcc: 0, junction: j, dead: false });
+    this.cars.push({ car, ai: null, kind: 'cross', wrecked: false, wreckT: 0, cruise, nearCool: 0, smokeAcc: 0, junction: j, dead: false, oncoming: false });
   }
 
   /** All traffic bodies as plain cars (for avoidance / collisions). */
@@ -137,6 +143,7 @@ export class Traffic {
     }
 
     let respawn = 0;
+    let respawnOncoming = 0;
     for (const t of this.cars) {
       const c = t.car;
       t.nearCool = Math.max(0, t.nearCool - dt);
@@ -146,7 +153,7 @@ export class Traffic {
         ctl = { throttle: -1, steer: 0, handbrake: true, nitro: false };
         t.smokeAcc += dt * 16;
         while (t.smokeAcc >= 1) { t.smokeAcc -= 1; emitSmoke(c.position.x + (Math.random() - 0.5), 0.9, c.position.z + (Math.random() - 0.5)); }
-        if (t.wreckT > 22 && Math.hypot(c.position.x - focus.position.x, c.position.z - focus.position.z) > 70) { t.dead = true; if (t.kind === 'lane') respawn++; }
+        if (t.wreckT > 22 && Math.hypot(c.position.x - focus.position.x, c.position.z - focus.position.z) > 70) { t.dead = true; if (t.kind === 'lane') { respawn++; if (t.oncoming) respawnOncoming++; } }
       } else if (t.ai) {
         ctl = t.ai.update(c, dt, 1);
       } else {
@@ -168,7 +175,7 @@ export class Traffic {
       for (let k = 0; k < respawn; k++) {
         for (let tries = 0; tries < 8; tries++) {
           const s = ((focus.progress % L) + L + 150 + this.rng() * 250) % L;
-          if (this.clearAt(s)) { this.spawnLane(s); break; }
+          if (this.clearAt(s)) { this.spawnLane(s, k < respawnOncoming); break; }
         }
       }
       this.refreshOthers();

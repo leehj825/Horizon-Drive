@@ -12,6 +12,8 @@ export class AIDriver {
   /** Corner speed capability multiplier. */
   cornering = 1;
   avoid: AvoidMode = 'none';
+  /** Drive against the lap direction (oncoming traffic). */
+  reverse = false;
   /** Cars to look out for (set by the owner each step). */
   others: readonly CarController[] = [];
   private nitroOn = false;
@@ -45,21 +47,22 @@ export class AIDriver {
         const l = dx * ch - dz * sh; // + = left
         if (Math.abs(l) > 3.0) continue;
         this.blocked = Math.max(this.blocked, 1 - f / range);
-        const ov = o.forwardSpeed * (o.free ? 0 : 1);
+        const ov = o.vx * sh + o.vz * ch; // its speed along my heading (negative when oncoming)
         limit = Math.min(limit, Math.max(ov, 6) + Math.max(0, f - 7) * 0.9);
         if (this.avoid === 'swerve') want = l > 0 ? -3.6 : 3.6;
       }
     }
     this.offset += (want - this.offset) * Math.min(1, dt * (want !== 0 ? 4.5 : 1.6));
 
-    const look = 8 + speed * 0.42;
-    const tp = track.pointAt(q.s + look, this.laneAt(car));
+    const look = 7 + speed * 0.36;
+    const dirSign = this.reverse ? -1 : 1;
+    const tp = track.pointAt(q.s + dirSign * look, this.laneAt(car));
     const desired = Math.atan2(tp.x - car.position.x, tp.z - car.position.z);
     const err = wrapAngle(desired - car.heading);
     const steer = Math.max(-1, Math.min(1, -err * 2.6));
 
     // corner speed from curvature ahead
-    const kap = track.curvatureAhead(q.idx, 28 + speed * 1.3);
+    const kap = this.reverse ? track.curvatureBehind(q.idx, 28 + speed * 1.3) : track.curvatureAhead(q.idx, 28 + speed * 1.3);
     const aLat = 25 * this.cornering * this.skill;
     const vCorner = kap > 1e-4 ? Math.sqrt(aLat / kap) : 999;
     const target = Math.min(car.stats.maxSpeed * this.skill * targetScale, vCorner, limit);

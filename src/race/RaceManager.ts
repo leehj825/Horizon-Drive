@@ -41,7 +41,7 @@ export interface RaceEvents {
   onCrash?: (strength: number) => void;
   onWreck?: (car: CarController) => void;
   onNearMiss?: () => void;
-  onSmash?: (kind: 0 | 1, x: number, z: number, byPlayer: boolean) => void;
+  onSmash?: (kind: number, x: number, z: number, byPlayer: boolean) => void;
 }
 
 const RIVAL_NAMES = ['Kira', 'Dash', 'Nyx', 'Rook', 'Vex', 'Juno', 'Blitz', 'Mako'];
@@ -87,7 +87,8 @@ export class RaceManager {
 
     const palette: [number, number][] = [[0xff3b6b, 0xffd24a], [0x3b82ff, 0xffffff], [0x7bff9a, 0x1b1f2a], [0xb45cff, 0xffe14a]];
     rivalSkills.forEach((skill, k) => {
-      const model = buildCar({ color: mode === 'boss' ? 0x101018 : palette[k % 4][0], accent: mode === 'boss' ? 0xff3b3b : palette[k % 4][1] });
+      const shapes = ['coupe', 'hatch', 'muscle', 'hyper'] as const;
+      const model = buildCar({ color: mode === 'boss' ? 0x101018 : palette[k % 4][0], accent: mode === 'boss' ? 0xff3b3b : palette[k % 4][1], shape: mode === 'boss' ? 'hyper' : shapes[(k + 1) % 4] });
       scene.add(model.root);
       const car = new CarController(w.track, { ...BASE_STATS }, NO_MODS, model);
       // AI ignores ramps (they sit on the left side of the road) but takes boost pads
@@ -96,7 +97,7 @@ export class RaceManager {
       car.placeOnTrack(g.s, g.lat);
       car.locked = true;
       const hw = w.track.halfWidth;
-      const lane = [-0.35, -0.55, -0.1, -0.45][k % 4] * hw;
+      const lane = [-0.4, -0.6, -0.3, -0.5][k % 4] * hw;
       const ai = new AIDriver(skill, lane);
       ai.avoid = 'swerve';
       this.racers.push(this.makeRacer(car, ai, mode === 'boss' ? 'BOSS' : RIVAL_NAMES[(k + Math.floor(w.preset.trackShape.seed)) % RIVAL_NAMES.length], false));

@@ -1,4 +1,5 @@
 import { BIOME_PRESETS, type BiomeId } from './biomes';
+import { applyCar, CARS, type CarId } from './cars';
 import { EQUIPMENT, modsFor, type EquipmentId } from './equipment';
 import type { SaveData } from './saveState';
 import { MAX_LOCATION_LEVEL, MAX_UPGRADE, locationCost, payoutMultiplier, tunedStats, upgradeCost, type UpgradeId } from './upgrades';
@@ -130,6 +131,22 @@ export function applyPayout(save: SaveData, r: RaceStats, p: Payout): void {
   if (r.mode === 'boss' && r.position === 1 && !save.bossesBeaten.includes(r.biome)) save.bossesBeaten.push(r.biome);
 }
 
+export function buyCar(save: SaveData, id: CarId): BuyResult {
+  if (save.carsOwned.includes(id)) return 'owned';
+  const cost = CARS[id].cost;
+  if (save.credits < cost) return 'poor';
+  save.credits -= cost;
+  save.carsOwned.push(id);
+  save.car = id;
+  return 'ok';
+}
+
+export function selectCar(save: SaveData, id: CarId): boolean {
+  if (!save.carsOwned.includes(id)) return false;
+  save.car = id;
+  return true;
+}
+
 export function carSetup(save: SaveData) {
-  return { stats: tunedStats(save.upgrades), mods: modsFor(save.loadout) };
+  return { stats: applyCar(tunedStats(save.upgrades), CARS[save.car]), mods: modsFor(save.loadout) };
 }

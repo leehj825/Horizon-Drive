@@ -1,7 +1,7 @@
 /** Tiny Web Audio synth: engine drone + one-shot effects. Starts on the first user gesture. */
 export class Synth {
-  private ctx: AudioContext | null = null;
-  private master: GainNode | null = null;
+  ctx: AudioContext | null = null;
+  master: GainNode | null = null;
   private engineA: OscillatorNode | null = null;
   private engineB: OscillatorNode | null = null;
   private engineGain: GainNode | null = null;
