@@ -40,6 +40,9 @@ Debug URL flags: `?autostart=neon_street:circuit` (jump into a race), `&level=5`
 * **Garage:** four cars (Street Coupe, Rally Hatch, Road Muscle, Neon Hyper) with different shapes and stats, eight paints, plus the vehicle upgrades and equipment.
 * **Street extras:** oncoming traffic in the left half of the road, road-closed barricades on side streets, smashable cones, barrels, bins and sign posts, wall-scrape sparks.
 * **Onboarding and audio:** first-race how-to-play card; procedural synthwave music per biome plus engine and effects.
+* **Meta game:** Championships (Street Series, Open Road Cup: 3 rounds, 10/6/3/1 points, trophies and prizes), a **Daily Challenge** seeded by the date (same for everyone, offline; modifiers like heavy traffic, oncoming rush, tough rivals; streak bonus), 13 achievements.
+* **Settings:** Easy/Normal/Hard difficulty (rival speed, traffic, payout), graphics Auto/High/Low, steering response, field of view, camera shake, volume, touch button size.
+* **Cinematics:** race replay with chase / TV / orbit / low cameras and slow motion around crashes, crash slow-mo during the race, tire smoke.
 * **Economy:** Credits (CR) + Tech Parts (TP). Near misses, smashed props, coins on track (Credit Magnet pulls them in), placement prizes, drift score, perfect drifts, jump bonuses, par time in Time Attack.
 * **i18n:** English default, Korean optional, switchable at any time (`src/i18n`). A unit test keeps the EN/KO key sets identical.
 * **Polish:** bloom on emissives, skid marks, spark/dust/snow particles, speed/nitro FOV, camera shake, minimap, Web Audio engine + SFX, touch controls, pause, wrong-way hint.
@@ -66,9 +69,13 @@ sim/                          headless simulations + browser smoke scripts (Play
 * `streetLamp` is a Location Lv.2 feature in every biome instead of a base prop.
 * Rival strength scales with Location level; the Boss Duel rival is faster than a stock car, so it needs upgrades.
 
+## Store release
+
+`store/` holds everything for a Google Play listing: icon (512), feature graphic, landscape screenshots (regenerate with `node store/make-assets.cjs`), a privacy policy (also in `docs/PRIVACY.md`) and `store-listing.md` with English and Korean descriptions plus a release checklist. The app requests no permissions and collects no data.
+
 ## Ideas for later
 
-Elevation and banking, a real drift-chain combo system, slipstream on Coast Highway, daily seeded tracks, replay/photo mode, online ghosts.
+Elevation and banking (hills, jump sections), a real drift-chain combo system, slipstream on Coast Highway, daily seeded tracks, replay/photo mode, online ghosts.
 
 ## Android pre-release APK
 

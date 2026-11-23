@@ -1,7 +1,9 @@
 import { BIOME_PRESETS, type BiomeId } from './biomes';
 import { applyCar, CARS, type CarId } from './cars';
+import { dailyChallenge, todayStr, type DailyChallenge } from './challenges';
+import { BIOME_ORDER } from './biomes';
 import { EQUIPMENT, modsFor, type EquipmentId } from './equipment';
-import type { SaveData } from './saveState';
+import type { Difficulty, SaveData } from './saveState';
 import { MAX_LOCATION_LEVEL, MAX_UPGRADE, locationCost, payoutMultiplier, tunedStats, upgradeCost, type UpgradeId } from './upgrades';
 
 export type RaceMode = 'time_attack' | 'duel' | 'circuit' | 'boss';
@@ -57,7 +59,17 @@ export function upgradeLocation(save: SaveData, biome: BiomeId): BuyResult {
   return 'ok';
 }
 
+export const DIFFICULTY: Record<Difficulty, { skill: number; traffic: number; pay: number }> = {
+  easy: { skill: 0.9, traffic: 0.65, pay: 0.8 },
+  normal: { skill: 1, traffic: 1, pay: 1 },
+  hard: { skill: 1.07, traffic: 1.3, pay: 1.25 },
+};
+
 export interface RaceStats {
+  /** Settings difficulty (defaults to normal). */
+  difficulty?: Difficulty;
+  wrecks?: number;
+  jumps?: number;
   biome: BiomeId;
   mode: RaceMode;
   /** 1-based finishing position (1 for time attack). */
@@ -107,7 +119,7 @@ export function computePayout(save: SaveData, r: RaceStats): Payout {
   if (r.nearMisses > 0) lines.push({ key: 'payNearMiss', value: Math.min(25, r.nearMisses) * 10 });
   if (r.smashes > 0) lines.push({ key: 'paySmash', value: Math.min(40, r.smashes) * 2 });
   const base = lines.reduce((s, l) => s + l.value, 0);
-  const multiplier = payoutMultiplier(level);
+  const multiplier = payoutMultiplier(level) * DIFFICULTY[r.difficulty ?? 'normal'].pay;
   let credits = Math.round(base * multiplier);
   let techParts = 0;
   let firstBoss = false;
@@ -149,4 +161,24 @@ export function selectCar(save: SaveData, id: CarId): boolean {
 
 export function carSetup(save: SaveData) {
   return { stats: applyCar(tunedStats(save.upgrades), CARS[save.car]), mods: modsFor(save.loadout) };
+}
+
+/** Lifetime counters for achievements. Call once per finished race, after applyPayout. */
+export function recordStats(save: SaveData, r: RaceStats, creditsEarned: number): void {
+  const st = save.stats;
+  st.races++;
+  if (r.position === 1 && r.mode !== 'time_attack') st.wins++;
+  else if (r.mode === 'time_attack' && r.time <= BIOME_PRESETS[r.biome].parTime) st.wins++;
+  st.nearMisses += r.nearMisses;
+  st.perfectDrifts += r.perfectDrifts;
+  st.smashes += r.smashes;
+  st.coins += r.coins;
+  st.wrecks += r.wrecks ?? 0;
+  st.jumps += r.jumps ?? 0;
+  st.earned += creditsEarned;
+}
+
+/** Today's daily challenge, picked among the biomes this player has unlocked. */
+export function todaysChallenge(save: SaveData): DailyChallenge {
+  return dailyChallenge(todayStr(), BIOME_ORDER.filter((b) => isBiomeUnlocked(save, b)));
 }

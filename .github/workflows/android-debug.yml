@@ -60,7 +60,7 @@ jobs:
           KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
         run: |
           echo "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/release.keystore"
-          KEYSTORE_FILE="$RUNNER_TEMP/release.keystore" gradle --no-daemon assembleRelease
+          KEYSTORE_FILE="$RUNNER_TEMP/release.keystore" gradle --no-daemon assembleRelease bundleRelease
 
       - name: Publish the APK as a pre-release
         if: github.event_name != 'pull_request'
@@ -81,6 +81,10 @@ jobs:
           if ls android/app/build/outputs/apk/release/*.apk >/dev/null 2>&1; then
             cp android/app/build/outputs/apk/release/*.apk "apk-out/horizon-drive-${SAFE}-release.apk"
             gh release upload "$TAG" "apk-out/horizon-drive-${SAFE}-release.apk" --clobber
+          fi
+          if ls android/app/build/outputs/bundle/release/*.aab >/dev/null 2>&1; then
+            cp android/app/build/outputs/bundle/release/*.aab "apk-out/horizon-drive-${SAFE}-release.aab"
+            gh release upload "$TAG" "apk-out/horizon-drive-${SAFE}-release.aab" --clobber
           fi
 
       - name: Check the APK was built (pull requests)

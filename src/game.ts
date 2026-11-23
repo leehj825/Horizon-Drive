@@ -8,7 +8,9 @@ import { Synth } from './audio/Synth';
 import { CameraRig } from './camera/CameraRig';
 import { BIOME_PRESETS, type BiomeId } from './data/biomes';
 import { CARS, PAINTS } from './data/cars';
-import { applyPayout, carSetup, computePayout, isBiomeUnlocked, type RaceMode } from './data/progression';
+import { checkAchievements } from './data/achievements';
+import { champById, champProgress, claimDaily, recordChampRound, type DailyChallenge } from './data/challenges';
+import { applyPayout, carSetup, computePayout, DIFFICULTY, isBiomeUnlocked, recordStats, todaysChallenge, type RaceMode } from './data/progression';
 import { SaveState } from './data/saveState';
 import { I18n } from './i18n/i18n';
 import { Input } from './input/Input';
@@ -16,13 +18,14 @@ import { AIDriver } from './race/AIDriver';
 import { RaceManager, TOTAL_LAPS } from './race/RaceManager';
 import { Traffic } from './race/Traffic';
 import { Hud } from './ui/Hud';
-import { Menus, type MenuHost, type Screen } from './ui/Menus';
+import { Menus, type MenuHost, type ResultsData, type Screen } from './ui/Menus';
 import { CarController, type CarFx, type ControlState } from './vehicle/CarController';
 import { buildCar, type CarModel } from './vehicle/CarMeshBuilder';
 import { loadBiomeScene, type BiomeWorld, type Quality } from './world/BiomeLoader';
 
 const DT = 1 / 120;
-type State = 'menu' | 'race' | 'paused' | 'results';
+type State = 'menu' | 'race' | 'paused' | 'results' | 'replay';
+type RaceCtx = { type: 'free' } | { type: 'champ'; id: string } | { type: 'daily'; ch: DailyChallenge };
 
 export interface GameOptions {
   /** Drive the player car with the AI (smoke tests / demos). */
@@ -53,6 +56,17 @@ export class Game implements MenuHost {
   playerModel!: CarModel;
   private modelKey = '';
   private holdRace = false;
+  private raceCtx: RaceCtx = { type: 'free' };
+  private wreckCount = 0;
+  private slowT = 0;
+  private timeScale = 1;
+  private qualityKey: 'auto' | 'high' | 'low' = 'auto';
+  private baseQuality: Quality;
+  private replayT = 0;
+  private replayCam = 0;
+  private replayCamT = 0;
+  private replayEl: HTMLElement | null = null;
+  private replayPoses = new Map<number, { x: number; y: number; z: number; h: number }>();
   private tutorialEl: HTMLElement | null = null;
   race: RaceManager | null = null;
   state: State = 'menu';
@@ -86,6 +100,7 @@ export class Game implements MenuHost {
     const coarse = matchMedia('(pointer: coarse)').matches || new URLSearchParams(location.search).has('touch');
     this.quality = { shadows: !coarse, bloom: !coarse, pixelRatio: Math.min(devicePixelRatio || 1, coarse ? 1.5 : 2), ...opts.quality };
     this.maxPixelRatio = this.quality.pixelRatio;
+    this.baseQuality = { ...this.quality };
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: !coarse, powerPreference: 'high-performance' });
     this.renderer.setPixelRatio(this.quality.pixelRatio);
     this.renderer.shadowMap.enabled = this.quality.shadows;
@@ -111,6 +126,7 @@ export class Game implements MenuHost {
         const p = this.world; if (!p) return;
         const c = p.preset.fxColor;
         const dust = p.preset.surface !== 'asphalt' || this.player.offroad;
+        if (!dust && Math.random() < 0.5) p.particles.emit(x + (Math.random() - 0.5) * 0.8, 0.25, z + (Math.random() - 0.5) * 0.8, -vx * 0.05, 1.1 + Math.random() * 0.8, -vz * 0.05, 0xc9ccd8, 2.7, 0.95, -0.5);
         for (let i = 0; i < n; i++) {
           p.particles.emit(x + (Math.random() - 0.5), 0.2, z + (Math.random() - 0.5), -vx * 0.15 + (Math.random() - 0.5) * 3, dust ? 1.2 + Math.random() * 1.5 : 1 + Math.random() * 2.5, -vz * 0.15 + (Math.random() - 0.5) * 3, dust ? (p.preset.surface === 'snow' ? 0xffffff : 0xcaa27a) : c, dust ? 1.5 : 1.1, dust ? 0.6 : 0.45, dust ? -0.5 : 7);
         }
@@ -123,6 +139,7 @@ export class Game implements MenuHost {
     this.aiFx = { skid: this.fx.skid, spark: () => {}, flame: () => {} };
 
     this.loadWorld(this.save.data.selectedBiome);
+    this.applySettings();
     this.resize();
     addEventListener('resize', () => this.resize());
     this.sfx.setMuted(this.save.data.muted);
@@ -214,6 +231,93 @@ export class Game implements MenuHost {
     this.loadWorld(id);
   }
 
+  // ---------- settings ----------
+  applySettings(): void {
+    const st = this.save.data.settings;
+    this.rig.fovOffset = st.fov;
+    this.rig.shakeScale = st.shake;
+    this.input.sensitivity = st.steer;
+    this.sfx.setVolume(st.volume);
+    document.documentElement.style.setProperty('--touch-scale', String(st.touchScale));
+    if (st.quality !== this.qualityKey) {
+      this.qualityKey = st.quality;
+      const b = this.baseQuality;
+      if (st.quality === 'auto') { this.quality = { ...b }; this.adaptive = !navigator.webdriver; }
+      else if (st.quality === 'high') { this.quality = { shadows: true, bloom: true, pixelRatio: this.maxPixelRatio }; this.adaptive = false; }
+      else { this.quality = { shadows: false, bloom: false, pixelRatio: Math.min(0.8, this.maxPixelRatio) }; this.adaptive = false; }
+      this.renderer.shadowMap.enabled = this.quality.shadows;
+      if (this.world) this.world.sun.castShadow = this.quality.shadows;
+      this.rebuildPostFx();
+      this.applyPixelRatio();
+    }
+  }
+
+  // ---------- replay ----------
+  startReplay(): void {
+    const r = this.race;
+    if (!r || this.state !== 'results' || !r.replay.samples.length) return;
+    this.state = 'replay';
+    this.menus.show('none');
+    this.replayT = 0; this.replayCam = 0; this.replayCamT = 0;
+    this.player.locked = true;
+    const el = document.createElement('div');
+    el.id = 'replay';
+    el.innerHTML = `<span class="tag">● ${this.i18n.t('ui.replay')}</span><div><button class="btn sm" data-r="skip">${this.i18n.t('ui.skip')}</button><button class="btn sm primary" data-r="exit">${this.i18n.t('ui.exitReplay')}</button></div>`;
+    document.getElementById('ui')!.appendChild(el);
+    el.addEventListener('click', (e) => {
+      const k = (e.target as HTMLElement).dataset.r;
+      if (k === 'exit') this.exitReplay(true);
+      else if (k === 'skip') { this.replayCam = (this.replayCam + 1) % 4; this.replayCamT = 0; }
+    });
+    this.replayEl = el;
+    document.body.classList.remove('racing');
+  }
+
+  private exitReplay(showResults: boolean): void {
+    this.replayEl?.remove(); this.replayEl = null;
+    if (this.state === 'replay') this.state = 'results';
+    if (showResults) this.menus.show('results');
+  }
+
+  private replayTick(dt: number): void {
+    const r = this.race;
+    if (!r) { this.exitReplay(true); return; }
+    const rec = r.replay;
+    if (this.input.consume('Escape') || this.input.consume('Enter')) { this.exitReplay(true); return; }
+    // slow motion around crashes
+    const slow = rec.crashes.some((c) => this.replayT > c - 0.6 && this.replayT < c + 1.4);
+    this.replayT += dt * (slow ? 0.35 : 1);
+    this.replayCamT += dt;
+    if (slow) { this.replayCam = 0; this.replayCamT = 0; }
+    else if (this.replayCamT > 5) { this.replayCam = (this.replayCam + 1) % 4; this.replayCamT = 0; }
+    if (this.replayT >= rec.duration) { this.exitReplay(true); return; }
+    rec.at(this.replayT, this.replayPoses);
+    for (const c of r.everyone) {
+      const pose = this.replayPoses.get(rec.idOf(c));
+      if (!pose || !c.model) continue;
+      c.model.root.position.set(pose.x, pose.y + 0.08, pose.z);
+      c.model.root.rotation.y = pose.h;
+      c.model.body.rotation.set(0, 0, c.extraRoll);
+      c.model.root.visible = true;
+    }
+    const me = this.replayPoses.get(rec.idOf(this.player));
+    if (!me) return;
+    const fx = Math.sin(me.h), fz = Math.cos(me.h);
+    const pos = new THREE.Vector3(me.x, me.y, me.z);
+    const cam = this.camera;
+    if (this.replayCam === 0) {
+      this.rig.update(dt, { position: pos, heading: me.h, lateralSpeed: 0, forwardSpeed: 30, speed: 30, nitroActive: false, boostTimer: 0 });
+    } else if (this.replayCam === 1) {
+      cam.position.set(me.x + fx * 16 + fz * 9, 2.4, me.z + fz * 16 - fx * 9); cam.lookAt(pos.x, 0.9, pos.z);
+      cam.fov += (50 - cam.fov) * 0.1; cam.updateProjectionMatrix();
+    } else if (this.replayCam === 2) {
+      this.rig.orbit(dt, pos, 22, 9);
+    } else {
+      cam.position.set(me.x + fx * 22, 1.3, me.z + fz * 22); cam.lookAt(pos.x, 1.0, pos.z);
+      cam.fov += (62 - cam.fov) * 0.1; cam.updateProjectionMatrix();
+    }
+  }
+
   /** (Re)build the player's 3D car for the selected car and paint. */
   private buildPlayerModel(): void {
     const d = this.save.data;
@@ -239,8 +343,24 @@ export class Game implements MenuHost {
 
   setShowroom(close: boolean): void { this.showroomClose = close; }
 
-  startRace(biome: BiomeId, mode: RaceMode): void {
+  startRace(biome: BiomeId, mode: RaceMode): void { this.launch(biome, mode, { type: 'free' }); }
+
+  startChampionship(id: string): void {
+    const c = champById(id);
+    const prog = champProgress(this.save.data, id);
+    if (prog.done) return;
+    this.launch(c.biomes[Math.min(prog.round, c.biomes.length - 1)], 'circuit', { type: 'champ', id });
+  }
+
+  startDaily(): void {
+    const ch = todaysChallenge(this.save.data);
+    this.launch(ch.biome, 'circuit', { type: 'daily', ch });
+  }
+
+  private launch(biome: BiomeId, mode: RaceMode, ctx: RaceCtx): void {
+    this.raceCtx = ctx;
     this.lastBiome = biome; this.lastMode = mode;
+    if (this.state === 'replay') this.exitReplay(false);
     this.race?.dispose();
     this.race = null;
     this.save.data.selectedBiome = biome;
@@ -249,12 +369,17 @@ export class Game implements MenuHost {
     const world = this.world!;
     this.refreshCar();
     const lv = world.level;
+    const diff = DIFFICULTY[this.save.data.settings.difficulty];
+    const dailyMods = ctx.type === 'daily' ? ctx.ch.mods : null;
+    const adj = diff.skill + (dailyMods?.skillAdd ?? 0);
     const skills: Record<RaceMode, number[]> = {
       time_attack: [],
-      duel: [0.85 + (lv - 1) * 0.014],
-      circuit: [0.78 + (lv - 1) * 0.014, 0.84 + (lv - 1) * 0.014, 0.9 + (lv - 1) * 0.014],
-      boss: [1.1],
+      duel: [(0.85 + (lv - 1) * 0.014) * adj],
+      circuit: [(0.78 + (lv - 1) * 0.014) * adj, (0.84 + (lv - 1) * 0.014) * adj, (0.9 + (lv - 1) * 0.014) * adj],
+      boss: [1.1 * adj],
     };
+    const champ = ctx.type === 'champ' ? champById(ctx.id) : null;
+    this.wreckCount = 0; this.slowT = 0; this.timeScale = 1;
     world.skids.clear();
     world.coins.reset();
     world.props.reset();
@@ -272,18 +397,19 @@ export class Game implements MenuHost {
       onCrash: (s) => {
         this.rig.shake(1.0);
         this.hud.center(this.i18n.t('ui.crash'), 1.1, 'crash');
+        this.race?.replay.markCrash(this.race.time);
+        if (s > 17) this.slowT = 0.75;
         const p = this.player.position;
         for (let i = 0; i < 26; i++) world.particles.emit(p.x, 0.8, p.z, (Math.random() - 0.5) * 14, 2 + Math.random() * 7, (Math.random() - 0.5) * 14, i % 3 ? 0xffb347 : 0xffffff, 1.2, 0.7, 14);
-        void s;
       },
-      onWreck: (c) => { this.hud.toast(this.i18n.t('ui.wreck'), 'gold', 1000); for (let i = 0; i < 14; i++) world.particles.emit(c.position.x, 0.8, c.position.z, (Math.random() - 0.5) * 9, 2 + Math.random() * 5, (Math.random() - 0.5) * 9, 0xffb347, 1.1, 0.6, 14); },
+      onWreck: (c) => { if (Math.hypot(c.position.x - this.player.position.x, c.position.z - this.player.position.z) < 40) this.wreckCount++; this.hud.toast(this.i18n.t('ui.wreck'), 'gold', 1000); for (let i = 0; i < 14; i++) world.particles.emit(c.position.x, 0.8, c.position.z, (Math.random() - 0.5) * 9, 2 + Math.random() * 5, (Math.random() - 0.5) * 9, 0xffb347, 1.1, 0.6, 14); },
       onNearMiss: () => { this.hud.toast(this.i18n.t('ui.nearMiss', { n: 10 }), 'cyan', 1100); this.sfx.coin(); },
       onSmash: (kind, x, z, byPlayer) => {
         if (byPlayer) { this.smashCount++; this.rig.shake(kind === 1 ? 0.22 : 0.12); this.sfx.wall(kind === 1 ? 4 : 2); }
         for (let i = 0; i < 6; i++) world.particles.emit(x, 0.4, z, (Math.random() - 0.5) * 6, 1 + Math.random() * 3, (Math.random() - 0.5) * 6, kind === 1 ? 0xff8a3a : kind === 3 ? 0x7fc8ff : 0xffffff, 0.9, 0.5, 12);
       },
     }, mode === 'time_attack' ? (this.save.data.ghosts[biome] ?? null) : null, skills[mode], this.scene,
-    world.preset.traffic.cars > 0 || world.intersections.length > 0 ? new Traffic(world, this.scene, world.intersections) : null, world.props);
+    world.preset.traffic.cars > 0 || world.intersections.length > 0 ? new Traffic(world, this.scene, world.intersections, { countMul: diff.traffic * (dailyMods?.trafficMul ?? 1), oncoming: dailyMods?.oncoming ?? null }) : null, world.props, champ ? [...champ.rivals] : null);
     this.race.ghost?.model.applyLoadout({});
     this.state = 'race';
     this.updateMusic();
@@ -302,7 +428,7 @@ export class Game implements MenuHost {
     this.menus.show('none');
   }
 
-  retry(): void { this.startRace(this.lastBiome, this.lastMode); }
+  retry(): void { this.launch(this.lastBiome, this.lastMode, this.raceCtx); }
 
   quit(): void {
     this.race?.dispose();
@@ -323,31 +449,45 @@ export class Game implements MenuHost {
   private onFinish(rank: number, time: number): void {
     const r = this.race!;
     const p = r.player;
+    const d = this.save.data;
     const biome = this.lastBiome, mode = this.lastMode;
     const stats = {
       biome, mode, position: mode === 'time_attack' ? 1 : rank, time,
       driftScore: this.player.driftScore, perfectDrifts: this.player.perfectDrifts,
       coins: this.coinsCollected, jumpBonus: this.jumpBonus,
       nearMisses: r.nearMisses, smashes: this.smashCount,
+      difficulty: d.settings.difficulty, wrecks: this.wreckCount, jumps: this.player.jumps,
     };
-    const prevBest = this.save.data.bestTimes[`${biome}:${mode}`];
-    const payout = computePayout(this.save.data, stats);
-    applyPayout(this.save.data, stats, payout);
+    const prevBest = d.bestTimes[`${biome}:${mode}`];
+    const payout = computePayout(d, stats);
+    applyPayout(d, stats, payout);
+    recordStats(d, stats, payout.credits);
     const newBest = (mode === 'time_attack' || rank === 1) && (prevBest === undefined || time < prevBest);
     if (r.bestLapGhost) {
-      const old = this.save.data.ghosts[biome];
-      if (!old || r.bestLapGhost.time < old.time) {
-        this.save.data.ghosts[biome] = r.bestLapGhost;
-      }
-      const lk = `${biome}`;
-      if (!(lk in this.save.data.bestLaps) || r.bestLapGhost.time < this.save.data.bestLaps[lk]) this.save.data.bestLaps[lk] = r.bestLapGhost.time;
+      const old = d.ghosts[biome];
+      if (!old || r.bestLapGhost.time < old.time) d.ghosts[biome] = r.bestLapGhost;
+      if (!(biome in d.bestLaps) || r.bestLapGhost.time < d.bestLaps[biome]) d.bestLaps[biome] = r.bestLapGhost.time;
     }
+    let champ: ResultsData['champ'];
+    let daily: { credits: number; techParts: number; streak: number } | null | undefined;
+    const ctx = this.raceCtx;
+    if (ctx.type === 'champ') {
+      const order = [...r.racers].sort((a, b) => a.rank - b.rank).map((x) => x.name);
+      const rr = recordChampRound(d, ctx.id, order);
+      champ = { ...rr, id: ctx.id, rounds: champById(ctx.id).biomes.length };
+    } else if (ctx.type === 'daily') {
+      daily = claimDaily(d, ctx.ch, rank);
+    }
+    const achievements = checkAchievements(d);
     this.save.save();
     this.sfx.finish(rank === 1);
     this.hud.center(rank === 1 ? this.i18n.t('results.win') : this.i18n.t('results.lose'), 2, rank === 1 ? 'go' : '');
-    this.pendingResults = { biome, mode, position: rank, total: r.racers.length, time, bestLap: p.bestLap, payout, newBest };
+    this.pendingResults = {
+      biome, mode, position: rank, total: r.racers.length, time, bestLap: p.bestLap, payout, newBest,
+      champ, daily, dailyAttempt: ctx.type === 'daily', achievements, replayAvailable: r.replay.samples.length > 30,
+    };
   }
-  private pendingResults: Parameters<Menus['show']>[1] | null = null;
+  private pendingResults: ResultsData | null = null;
 
   // ---------- loop ----------
   private frame(now: number): void {
@@ -369,7 +509,7 @@ export class Game implements MenuHost {
     const inp = this.input;
     if (this.state === 'race' || this.state === 'paused') {
       if (inp.consume('Escape') || inp.consume('KeyP')) this.togglePause();
-    } else { inp.consume('Escape'); inp.consume('KeyP'); }
+    } else if (this.state !== 'replay') { inp.consume('Escape'); inp.consume('KeyP'); }
     if (inp.consume('KeyM')) { this.save.data.muted = !this.save.data.muted; this.sfx.setMuted(this.save.data.muted); this.save.save(); }
 
     let ctl = inp.poll(dt);
@@ -378,8 +518,10 @@ export class Game implements MenuHost {
       if (this.autopilot) { this.autopilot.others = race.everyone; ctl = this.autopilot.update(this.player, dt); }
       if (inp.consume('KeyR') && race.phase === 'racing') this.player.respawn();
       if (this.holdRace) { if (inp.consume('Enter') || inp.consume('Space')) this.dismissTutorial(); this.acc = 0; this.rig.update(dt, this.player); return this.renderOnly(dt); }
+      this.slowT = Math.max(0, this.slowT - dt);
+      this.timeScale += ((this.slowT > 0 ? 0.35 : 1) - this.timeScale) * Math.min(1, dt * 10);
       this.ctlCache = ctl;
-      this.acc += dt;
+      this.acc += dt * this.timeScale;
       let steps = 0;
       while (this.acc >= DT && steps < 40) {
         race.step(DT, this.ctlCache, this.fx, this.aiFx);
@@ -389,6 +531,8 @@ export class Game implements MenuHost {
       this.afterRaceStep(dt);
       this.rig.update(dt, this.player);
       this.applyMenuShift(false);
+    } else if (this.state === 'replay') {
+      this.replayTick(dt);
     } else if (this.state === 'menu' || this.state === 'results') {
       inp.consume('KeyR');
       const car = this.playerModel.root.position;

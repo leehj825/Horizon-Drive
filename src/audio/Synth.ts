@@ -9,6 +9,7 @@ export class Synth {
   private noiseGain: GainNode | null = null;
   private noiseFilter: BiquadFilterNode | null = null;
   muted = false;
+  private volume = 1;
 
   /** Call from a user gesture. */
   resume(): void {
@@ -19,7 +20,7 @@ export class Synth {
       } catch { return; }
       const c = this.ctx;
       this.master = c.createGain();
-      this.master.gain.value = this.muted ? 0 : 0.5;
+      this.master.gain.value = this.muted ? 0 : 0.5 * this.volume;
       this.master.connect(c.destination);
       this.engineGain = c.createGain();
       this.engineGain.gain.value = 0;
@@ -44,7 +45,12 @@ export class Synth {
 
   setMuted(m: boolean): void {
     this.muted = m;
-    if (this.master && this.ctx) this.master.gain.setTargetAtTime(m ? 0 : 0.5, this.ctx.currentTime, 0.05);
+    if (this.master && this.ctx) this.master.gain.setTargetAtTime(m ? 0 : 0.5 * this.volume, this.ctx.currentTime, 0.05);
+  }
+
+  setVolume(v: number): void {
+    this.volume = v;
+    if (this.master && this.ctx && !this.muted) this.master.gain.setTargetAtTime(0.5 * v, this.ctx.currentTime, 0.05);
   }
 
   /** speed in m/s, throttle 0..1 */

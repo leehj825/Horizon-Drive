@@ -21,3 +21,11 @@ const ui = document.getElementById('ui') as HTMLElement;
 const game = new Game(canvas, ui, opts);
 setupTouch(game.input);
 (window as unknown as { __hd: Game }).__hd = game;
+
+// the first frame is up: fade the loading splash out
+requestAnimationFrame(() => requestAnimationFrame(() => {
+  const sp = document.getElementById('splash');
+  if (!sp) return;
+  sp.style.opacity = '0';
+  setTimeout(() => sp.remove(), 600);
+}));

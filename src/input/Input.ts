@@ -8,6 +8,8 @@ export class Input {
   private virtual: Record<VirtualButton, boolean> = { left: false, right: false, brake: false, drift: false, nitro: false };
   private steer = 0;
   touch = false;
+  /** Steering response multiplier (settings). */
+  sensitivity = 1;
   private pressed = new Set<string>();
   readonly state: ControlState = { throttle: 0, steer: 0, handbrake: false, nitro: false };
 
@@ -54,7 +56,7 @@ export class Input {
       if (pad.buttons[2]?.pressed || pad.buttons[5]?.pressed) nitro = true;
     }
     // smooth keyboard steering: quick to turn in, quicker to centre
-    const rate = target === 0 ? 9 : Math.sign(target) === Math.sign(this.steer) || this.steer === 0 ? 5.5 : 11;
+    const rate = (target === 0 ? 9 : Math.sign(target) === Math.sign(this.steer) || this.steer === 0 ? 5.5 : 11) * this.sensitivity;
     const d = target - this.steer;
     this.steer += Math.sign(d) * Math.min(Math.abs(d), rate * dt);
     const s = this.state;

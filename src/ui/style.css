@@ -54,6 +54,7 @@ button { font: inherit; color: inherit; cursor: pointer; }
 #screen.scr-garage { background: linear-gradient(90deg, rgba(5, 7, 18, 0.86), rgba(5, 7, 18, 0.1) 78%); }
 .panel { width: min(430px, 100%); background: var(--panel); border: 1px solid var(--edge); border-radius: 20px; padding: 22px; backdrop-filter: blur(10px); box-shadow: 0 20px 60px rgba(0, 0, 0, 0.45); margin: auto 0; max-height: calc(100vh - 36px); overflow: auto; }
 .panel.wide { width: min(880px, 100%); }
+.panel.results { width: min(540px, 100%); }
 .panel.garage { width: min(820px, 100%); }
 .brand h1 { margin: 0; font-size: clamp(34px, 7vw, 52px); font-style: italic; font-weight: 900; letter-spacing: 0.04em; background: linear-gradient(90deg, var(--cyan), var(--pink)); -webkit-background-clip: text; background-clip: text; color: transparent; }
 .brand p { margin: 2px 0 14px; color: var(--dim); }
@@ -172,3 +173,23 @@ body.is-touch .coins { display: none; }
 #tutorial .panel { width: min(520px, 100%); }
 #tutorial h2 { margin: 0 0 8px; letter-spacing: 0.12em; }
 #tutorial p { margin: 10px 0; line-height: 1.45; color: var(--text); }
+
+.row.duo { gap: 8px; } .row.duo .btn { flex: 1; }
+.row.tabs { margin: 4px 0 8px; gap: 6px; flex-wrap: wrap; }
+.seg { display: flex; gap: 6px; flex-wrap: wrap; }
+label.set { display: grid; grid-template-columns: 1fr 1.4fr 56px; align-items: center; gap: 10px; margin: 8px 0; font-size: 14px; color: var(--dim); }
+label.set b { color: var(--text); text-align: right; font-variant-numeric: tabular-nums; }
+input[type=range] { width: 100%; accent-color: var(--cyan); height: 28px; }
+.rounds { margin: 4px 0; padding: 0; list-style: none; font-size: 13px; color: var(--dim); }
+.rounds li.done { color: #7bff9a; } .rounds li.now { color: var(--cyan); font-weight: 700; }
+.board { display: flex; gap: 6px 12px; flex-wrap: wrap; font-size: 13px; color: var(--dim); }
+.board .me { color: var(--gold); font-weight: 800; }
+.card.champ .btn { margin-top: 6px; }
+.bar { height: 5px; background: rgba(255,255,255,0.12); border-radius: 3px; margin-top: 6px; overflow: hidden; }
+.bar i { display: block; height: 100%; background: var(--cyan); }
+
+#replay { position: fixed; left: 0; right: 0; top: 0; display: flex; justify-content: space-between; align-items: center; padding: max(12px, env(safe-area-inset-top)) 16px 12px; background: linear-gradient(180deg, rgba(0,0,0,0.55), transparent); z-index: 4; }
+#replay .tag { color: #ff4f5e; font-weight: 900; letter-spacing: 0.14em; }
+#replay > div { display: flex; gap: 8px; }
+#touch button { transform: scale(var(--touch-scale, 1)); }
+.t-left button { transform-origin: bottom left; } .t-right button { transform-origin: bottom right; }

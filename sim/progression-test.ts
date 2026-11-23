@@ -4,6 +4,9 @@ import { modsFor } from '../src/data/equipment';
 import { applyPayout, buyCar, selectCar, carSetup, buyEquipment, buyUpgrade, computePayout, isBiomeUnlocked, modeAvailable, toggleEquip, upgradeLocation } from '../src/data/progression';
 import { SaveState } from '../src/data/saveState';
 import { BASE_STATS, featuresFor, locationCost, payoutMultiplier, tunedStats } from '../src/data/upgrades';
+import { ACHIEVEMENTS, checkAchievements } from '../src/data/achievements';
+import { CHAMPIONSHIPS, claimDaily, dailyChallenge, recordChampRound, todayStr } from '../src/data/challenges';
+import { DIFFICULTY, recordStats } from '../src/data/progression';
 import { I18n } from '../src/i18n/i18n';
 import { TRANSLATIONS } from '../src/i18n/translations';
 
@@ -82,6 +85,47 @@ const coupe = carSetup(sc).stats;
 selectCar(sc, 'hatch');
 const hatch = carSetup(sc).stats;
 assert.ok(hatch.grip > coupe.grip && hatch.maxSpeed < coupe.maxSpeed);
+
+// difficulty scales the payout
+const hard = computePayout(s2, { ...r, difficulty: 'hard' });
+const easy = computePayout(s2, { ...r, difficulty: 'easy' });
+assert.ok(hard.credits > p.credits && easy.credits < p.credits);
+assert.ok(DIFFICULTY.hard.skill > DIFFICULTY.easy.skill);
+
+// championship: 3 rounds, points 10/6/3/1, trophy by final standing
+const cs = new SaveState().data;
+const champ = CHAMPIONSHIPS[0];
+let rr = recordChampRound(cs, champ.id, ['YOU', 'Kira', 'Dash', 'Nyx']);
+assert.deepEqual(rr.gained, [10, 6, 3, 1]);
+assert.ok(!rr.finished);
+rr = recordChampRound(cs, champ.id, ['Kira', 'YOU', 'Dash', 'Nyx']);
+rr = recordChampRound(cs, champ.id, ['YOU', 'Nyx', 'Kira', 'Dash']);
+assert.ok(rr.finished && rr.trophy === 'gold');
+assert.equal(cs.credits, 600 + champ.rewards.gold);
+assert.equal(cs.stats.champsWon, 1);
+const cs2 = new SaveState().data;
+['Kira', 'Dash', 'Nyx'].forEach((n) => recordChampRound(cs2, champ.id, [n, 'YOU', 'Kira', 'Dash'].filter((x, i, a) => a.indexOf(x) === i)));
+assert.ok(cs2.champs[champ.id].done);
+
+// daily: deterministic per date, claim once, streak
+const d1 = dailyChallenge('2026-11-23', ['neon_street', 'harbor_docks']);
+assert.deepEqual(d1, dailyChallenge('2026-11-23', ['neon_street', 'harbor_docks']));
+assert.ok(['neon_street', 'harbor_docks'].includes(d1.biome));
+const ds = new SaveState().data;
+assert.equal(claimDaily(ds, d1, 3), null, 'needs a top-2 finish');
+const c1 = claimDaily(ds, d1, 1)!;
+assert.equal(c1.streak, 1);
+assert.equal(claimDaily(ds, d1, 1), null, 'once per day');
+const d2 = dailyChallenge('2026-11-24', ['neon_street']);
+assert.equal(claimDaily(ds, d2, 2)!.streak, 2);
+assert.equal(todayStr(new Date('2026-01-02T12:00:00Z')), '2026-01-02');
+
+// achievements pay once
+const as = new SaveState().data;
+recordStats(as, { ...r, nearMisses: 0, smashes: 0 }, 100);
+assert.deepEqual(checkAchievements(as), ['firstWin']);
+assert.deepEqual(checkAchievements(as), []);
+assert.equal(as.credits, 600 + ACHIEVEMENTS.find((a) => a.id === 'firstWin')!.reward);
 
 // i18n: EN/KO parity and fallback
 function keys(o: unknown, pre = ''): string[] {

@@ -8,6 +8,7 @@ import { NO_MODS } from '../data/equipment';
 import { GhostPlayer, GhostRecorder } from './Ghost';
 import type { GhostData } from '../data/saveState';
 import { resolveCars } from './collision';
+import { ReplayRecorder } from './Replay';
 import type { Traffic } from './Traffic';
 import type { SmashProps } from '../world/SmashProps';
 
@@ -62,6 +63,7 @@ export class RaceManager {
   private rubber = true;
   /** Close passes at speed by the player. */
   nearMisses = 0;
+  readonly replay = new ReplayRecorder();
   /** Every car on the road: racers plus civilians. */
   everyone: CarController[] = [];
 
@@ -75,6 +77,7 @@ export class RaceManager {
     scene: THREE.Object3D,
     readonly traffic: Traffic | null = null,
     readonly props: SmashProps | null = null,
+    rivalNames: string[] | null = null,
   ) {
     const w = world;
     playerCar.features = w.features;
@@ -100,7 +103,7 @@ export class RaceManager {
       const lane = [-0.4, -0.6, -0.3, -0.5][k % 4] * hw;
       const ai = new AIDriver(skill, lane);
       ai.avoid = 'swerve';
-      this.racers.push(this.makeRacer(car, ai, mode === 'boss' ? 'BOSS' : RIVAL_NAMES[(k + Math.floor(w.preset.trackShape.seed)) % RIVAL_NAMES.length], false));
+      this.racers.push(this.makeRacer(car, ai, mode === 'boss' ? 'BOSS' : rivalNames?.[k] ?? RIVAL_NAMES[(k + Math.floor(w.preset.trackShape.seed)) % RIVAL_NAMES.length], false));
       car.setEvents({});
     });
     this.rubber = mode !== 'boss';
@@ -165,6 +168,7 @@ export class RaceManager {
     this.collide();
     this.props?.update(dt, this.everyone, (car, kind, x, z) => this.events.onSmash?.(kind, x, z, car === this.player.car));
     this.rank();
+    this.replay.step(dt, this.time, this.everyone);
 
     if (this.mode === 'time_attack' && this.ghost) this.ghost.update(dt);
     if (this.player.car.lap >= 0 && this.phase === 'racing') this.recorder.step(dt, this.player.car);

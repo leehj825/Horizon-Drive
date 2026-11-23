@@ -115,9 +115,10 @@ export function buildTrack(track: Track, preset: BiomePreset, level: number): Bu
   addMesh(ribbonGeometry(track, { latA: -hw, latB: hw, y: 0.045, s0: L - 1.2, s1: L + 1.2, vScale: 2.4 }), mats(dbl(new THREE.MeshBasicMaterial({ map: checker }))), 0, false);
 
   // neon drift zones
+  const zoneCol = preset.cityStyle === 'harbor' ? [0xffa23a, 0xffc27a] : preset.cityStyle === 'day' ? [0x2f8cff, 0x8ac4ff] : [0xff3fa6, 0xff7ac8];
   for (const [a, b] of track.driftZones) {
-    addMesh(ribbonGeometry(track, { latA: -hw + 0.8, latB: hw - 0.8, y: 0.04, s0: a * L, s1: b * L }), mats(dbl(new THREE.MeshBasicMaterial({ color: 0xff3fa6, transparent: true, opacity: 0.22, depthWrite: false }))), 0, false);
-    addMesh(dashGeometry(track, 0, 1.2, 5, 14, 0.042, a * L, b * L), mats(dbl(new THREE.MeshBasicMaterial({ color: 0xff7ac8, transparent: true, opacity: 0.8 }))), 0, false);
+    addMesh(ribbonGeometry(track, { latA: -hw + 0.8, latB: hw - 0.8, y: 0.04, s0: a * L, s1: b * L }), mats(dbl(new THREE.MeshBasicMaterial({ color: zoneCol[0], transparent: true, opacity: 0.14, depthWrite: false }))), 0, false);
+    addMesh(dashGeometry(track, 0, 1.2, 5, 14, 0.042, a * L, b * L), mats(dbl(new THREE.MeshBasicMaterial({ color: zoneCol[1], transparent: true, opacity: 0.8 }))), 0, false);
   }
 
   // ---- signalled junctions (street racing): open the walls, add cross street, crosswalks and signals ----

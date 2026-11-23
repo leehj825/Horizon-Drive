@@ -45,14 +45,15 @@ export class Traffic {
   private lanesOncoming = [0.34, 0.62];
   events: TrafficEvents = {};
 
-  constructor(private world: BiomeWorld, private parent: THREE.Object3D | null, private intersections: Intersection[]) {
+  constructor(private world: BiomeWorld, private parent: THREE.Object3D | null, private intersections: Intersection[], opts: { countMul?: number; oncoming?: number | null } = {}) {
     this.rng = mulberry32(world.preset.trackShape.seed * 31 + 7);
-    const n = world.preset.traffic.cars;
+    const n = Math.round(world.preset.traffic.cars * (opts.countMul ?? 1));
+    const oncomingShare = opts.oncoming ?? world.preset.traffic.oncoming;
     const L = world.track.length;
     const first = 130, last = L - 120;
     for (let k = 0; k < n; k++) {
       const s = first + ((last - first) * (k + 0.2 + this.rng() * 0.6)) / n;
-      this.spawnLane(s, this.rng() < world.preset.traffic.oncoming);
+      this.spawnLane(s, this.rng() < oncomingShare);
     }
     intersections.forEach((_, i) => { this.phase.push(this.rng() * CYCLE); this.lastState.push('green'); this.spawned.push(false); void i; });
   }

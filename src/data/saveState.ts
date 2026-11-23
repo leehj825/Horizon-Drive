@@ -10,6 +10,36 @@ export interface GhostData {
 }
 export const GHOST_HZ = 20;
 
+export type Difficulty = 'easy' | 'normal' | 'hard';
+export type QualitySetting = 'auto' | 'high' | 'low';
+
+export interface Settings {
+  difficulty: Difficulty;
+  /** Steering response multiplier. */
+  steer: number;
+  /** Extra field of view in degrees. */
+  fov: number;
+  quality: QualitySetting;
+  /** Size of the on-screen touch buttons. */
+  touchScale: number;
+  volume: number;
+  /** Camera shake multiplier. */
+  shake: number;
+}
+
+export interface ChampProgress {
+  round: number;
+  /** Points: [player, rival 1, rival 2, rival 3]. */
+  points: number[];
+  done: boolean;
+  trophy: 'gold' | 'silver' | 'bronze' | null;
+}
+
+export interface Stats {
+  races: number; wins: number; nearMisses: number; perfectDrifts: number; smashes: number;
+  wrecks: number; jumps: number; coins: number; dailies: number; champsWon: number; earned: number;
+}
+
 export interface SaveData {
   v: 1;
   credits: number;
@@ -31,6 +61,13 @@ export interface SaveData {
   car: CarId;
   carsOwned: CarId[];
   paint: number;
+  settings: Settings;
+  champs: Record<string, ChampProgress>;
+  daily: { date: string; done: boolean };
+  dailyStreak: number;
+  lastDailyDate: string;
+  stats: Stats;
+  achievements: string[];
 }
 
 const KEY = 'hd_save_v1';
@@ -60,6 +97,13 @@ function fresh(): SaveData {
     car: 'coupe',
     carsOwned: ['coupe'],
     paint: 0,
+    settings: { difficulty: 'normal', steer: 1, fov: 0, quality: 'auto', touchScale: 1, volume: 1, shake: 1 },
+    champs: {},
+    daily: { date: '', done: false },
+    dailyStreak: 0,
+    lastDailyDate: '',
+    stats: { races: 0, wins: 0, nearMisses: 0, perfectDrifts: 0, smashes: 0, wrecks: 0, jumps: 0, coins: 0, dailies: 0, champsWon: 0, earned: 0 },
+    achievements: [],
   };
 }
 
@@ -77,12 +121,17 @@ export class SaveState {
       const raw = safeStorage()?.getItem(KEY);
       if (raw) {
         const parsed = JSON.parse(raw) as Partial<SaveData>;
-        if (parsed.v === 1) this.data = { ...this.data, ...parsed, upgrades: { ...this.data.upgrades, ...parsed.upgrades }, locations: { ...this.data.locations, ...parsed.locations } };
+        if (parsed.v === 1) this.data = { ...this.data, ...parsed, upgrades: { ...this.data.upgrades, ...parsed.upgrades }, locations: { ...this.data.locations, ...parsed.locations }, settings: { ...this.data.settings, ...parsed.settings }, stats: { ...this.data.stats, ...parsed.stats } };
       }
     } catch { /* corrupt save: start fresh */ }
   }
 
   onChange(fn: () => void): void { this.listeners.push(fn); }
+
+  /** Write to storage without notifying listeners (sliders). */
+  persist(): void {
+    try { safeStorage()?.setItem(KEY, JSON.stringify(this.data)); } catch { /* quota / private mode */ }
+  }
 
   save(): void {
     try { safeStorage()?.setItem(KEY, JSON.stringify(this.data)); } catch { /* quota / private mode */ }

@@ -22,13 +22,14 @@ export class CameraRig {
   private orbitAngle = 0.6;
   /** True where the camera may not be (inside buildings); it is pulled towards the car until free. */
   blocked: ((x: number, z: number) => boolean) | null = null;
+  shakeScale = 1;
   /** Added to the FOV (user setting). */
   fovOffset = 0;
 
   constructor(readonly camera: THREE.PerspectiveCamera) {}
 
   shake(amount: number): void {
-    this.shakeAmp = Math.min(1.2, this.shakeAmp + amount);
+    this.shakeAmp = Math.min(1.2, this.shakeAmp + amount * this.shakeScale);
     this.shakeTime = 0;
   }
 

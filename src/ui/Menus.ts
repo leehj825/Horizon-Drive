@@ -7,8 +7,12 @@ import { MAX_LOCATION_LEVEL, MAX_UPGRADE, UPGRADE_IDS, locationCost, payoutMulti
 import type { I18n } from '../i18n/i18n';
 import type { Synth } from '../audio/Synth';
 import { fmtTime } from './Hud';
+import { ACHIEVEMENTS } from '../data/achievements';
+import { CHAMPIONSHIPS, CHAMP_POINTS, champProgress, champUnlocked, dailyStatus, type RoundResult } from '../data/challenges';
+import { todaysChallenge } from '../data/progression';
+import type { Difficulty, QualitySetting, Settings } from '../data/saveState';
 
-export type Screen = 'none' | 'main' | 'race' | 'garage' | 'locations' | 'results' | 'pause';
+export type Screen = 'none' | 'main' | 'race' | 'garage' | 'locations' | 'results' | 'pause' | 'settings' | 'achievements';
 
 export interface ResultsData {
   biome: BiomeId;
@@ -19,6 +23,12 @@ export interface ResultsData {
   bestLap: number;
   payout: Payout;
   newBest: boolean;
+  /** Championship round just finished. */
+  champ?: RoundResult & { id: string; rounds: number };
+  daily?: { credits: number; techParts: number; streak: number } | null;
+  dailyAttempt?: boolean;
+  achievements?: string[];
+  replayAvailable?: boolean;
 }
 
 export interface MenuHost {
@@ -33,6 +43,10 @@ export interface MenuHost {
   quit(): void;
   /** Camera framing for the menu backdrop. */
   setShowroom(close: boolean): void;
+  applySettings(): void;
+  startChampionship(id: string): void;
+  startDaily(): void;
+  startReplay(): void;
 }
 
 const MODES: RaceMode[] = ['time_attack', 'duel', 'circuit', 'boss'];
@@ -42,6 +56,7 @@ const esc = (s: string) => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&l
 export class Menus {
   screen: Screen = 'none';
   private mode: RaceMode = 'time_attack';
+  private raceTab: 'free' | 'champ' | 'daily' = 'free';
   private results: ResultsData | null = null;
   readonly root: HTMLElement;
 
@@ -53,6 +68,16 @@ export class Menus {
       const el = (e.target as HTMLElement).closest<HTMLElement>('[data-act]');
       if (!el || (el as HTMLButtonElement).disabled) return;
       this.act(el.dataset.act!, el.dataset.arg ?? '');
+    });
+    this.root.addEventListener('input', (e) => {
+      const el = e.target as HTMLInputElement;
+      const key = el.dataset.set as keyof Settings | undefined;
+      if (!key) return;
+      (this.host.save.data.settings[key] as number) = Number(el.value);
+      const out = this.root.querySelector<HTMLElement>(`[data-val="${key}"]`);
+      if (out) out.textContent = this.fmtSetting(key, Number(el.value));
+      this.host.save.persist();
+      this.host.applySettings();
     });
     host.i18n.onChange(() => this.render());
     host.save.onChange(() => { if (this.screen !== 'none') this.render(); });
@@ -87,6 +112,13 @@ export class Menus {
       }
       case 'mode': if (modeAvailable(d, d.selectedBiome, arg as RaceMode)) { sfx.click(); this.mode = arg as RaceMode; this.render(); } return;
       case 'start': this.host.startRace(d.selectedBiome, this.mode); return;
+      case 'tab': sfx.click(); this.raceTab = arg as 'free' | 'champ' | 'daily'; this.render(); return;
+      case 'startChamp': this.host.startChampionship(arg); return;
+      case 'resetChamp': if (confirm(this.t('ui.resetConfirm'))) { delete d.champs[arg]; save.save(); } return;
+      case 'startDaily': this.host.startDaily(); return;
+      case 'setDiff': d.settings.difficulty = arg as Difficulty; sfx.click(); save.save(); return;
+      case 'setQuality': d.settings.quality = arg as QualitySetting; sfx.click(); save.save(); this.host.applySettings(); return;
+      case 'replay': this.host.startReplay(); return;
       case 'buyCar': if (buyCar(d, arg as CarId) === 'ok') { sfx.buy(); save.save(); this.host.refreshCar(); } return;
       case 'selCar': if (selectCar(d, arg as CarId)) { sfx.click(); save.save(); this.host.refreshCar(); } return;
       case 'paint': d.paint = Number(arg); sfx.click(); save.save(); this.host.refreshCar(); return;
@@ -109,7 +141,7 @@ export class Menus {
     this.root.className = `scr-${s}`;
     this.root.hidden = s === 'none';
     if (s === 'none') { this.root.innerHTML = ''; return; }
-    const body = s === 'main' ? this.main() : s === 'race' ? this.raceSetup() : s === 'garage' ? this.garage() : s === 'locations' ? this.locations() : s === 'results' ? this.resultsView() : this.pause();
+    const body = s === 'main' ? this.main() : s === 'settings' ? this.settingsView() : s === 'achievements' ? this.achievementsView() : s === 'race' ? this.raceSetup() : s === 'garage' ? this.garage() : s === 'locations' ? this.locations() : s === 'results' ? this.resultsView() : this.pause();
     this.root.innerHTML = body;
   }
 
@@ -141,6 +173,7 @@ export class Menus {
         <button class="btn primary" data-act="nav" data-arg="race">${this.t('ui.play')}</button>
         <button class="btn" data-act="nav" data-arg="garage">${this.t('ui.garage')}</button>
         <button class="btn" data-act="nav" data-arg="locations">${this.t('ui.locations')}</button>
+        <div class="row duo"><button class="btn sm" data-act="nav" data-arg="achievements">🏆 ${this.t('ui.achievements')}</button><button class="btn sm" data-act="nav" data-arg="settings">⚙ ${this.t('ui.settings')}</button></div>
       </div>
       <div class="now"><b>${this.t('biomes.' + p.id + '.name')}</b> · ${this.t('ui.locationLevel')} ${lv} · ${this.t('ui.payoutBonus')} ×${payoutMultiplier(lv).toFixed(2)}</div>
       <div class="row settings">
@@ -181,12 +214,73 @@ export class Menus {
     const p = BIOME_PRESETS[sel];
     const rec = EQUIPMENT_LIST.filter((e) => e.recommended.includes(sel) && d.loadout[e.slot] !== e.id).map((e) => this.t('equipment.' + e.id + '.name'));
     const ghost = this.mode === 'time_attack' ? (d.ghosts[sel] ? `${this.t('ui.ghost')} ${fmtTime(d.ghosts[sel]!.time)}` : this.t('ui.noGhost')) : '';
-    return `<div class="panel wide">${this.header(this.t('ui.play'))}
+    const tabs = (['free', 'champ', 'daily'] as const).map((tb) => `<button class="btn sm ${this.raceTab === tb ? 'sel' : ''}" data-act="tab" data-arg="${tb}">${this.t(tb === 'free' ? 'ui.freeRace' : tb === 'champ' ? 'ui.championship' : 'ui.daily')}</button>`).join('');
+    if (this.raceTab === 'champ') return `<div class="panel wide">${this.header(this.t('ui.play'))}<div class="row tabs">${tabs}</div>${this.champTab()}</div>`;
+    if (this.raceTab === 'daily') return `<div class="panel wide">${this.header(this.t('ui.play'))}<div class="row tabs">${tabs}</div>${this.dailyTab()}</div>`;
+    return `<div class="panel wide">${this.header(this.t('ui.play'))}<div class="row tabs">${tabs}</div>
       <h3>${this.t('ui.selectLocation')}</h3><div class="cards">${cards}</div>
       <h3>${this.t('ui.selectEvent')}</h3><div class="cards">${modeBtns}</div>
       <div class="meta">${this.t('ui.par')} ${fmtTime(p.parTime)}${ghost ? ' · ' + ghost : ''}${rec.length ? `<br><span class="rec">★ ${this.t('ui.recommended')}: ${rec.join(', ')}</span>` : ''}</div>
       <button class="btn primary big" data-act="start">${this.t('ui.start')}</button>
     </div>`;
+  }
+
+  private champTab(): string {
+    const d = this.host.save.data;
+    return `<div class="cards">${CHAMPIONSHIPS.map((c) => {
+      const prog = champProgress(d, c.id);
+      const unlocked = champUnlocked(c, (b) => isBiomeUnlocked(d, b));
+      const list = c.biomes.map((b, i) => `<li class="${i < prog.round ? 'done' : i === prog.round && !prog.done ? 'now' : ''}">${i < prog.round ? '✓' : i + 1}. ${this.t('biomes.' + b + '.name')}</li>`).join('');
+      const names = ['YOU', ...c.rivals];
+      const board = prog.round > 0 ? `<div class="board">${names.map((n, i) => ({ n, p: prog.points[i] })).sort((a, b) => b.p - a.p).map((x) => `<span class="${x.n === 'YOU' ? 'me' : ''}">${x.n} ${x.p}${this.t('ui.points')}</span>`).join('')}</div>` : '';
+      const trophy = prog.done ? `<span class="lv">🏆 ${prog.trophy ? this.t('ui.' + prog.trophy) : '—'} · ${this.t('ui.champDone')}</span>` : '';
+      const btn = !unlocked ? `<small>🔒 ${this.t('ui.needsUnlock')}</small>`
+        : prog.done ? `<button class="btn sm" data-act="resetChamp" data-arg="${c.id}">${this.t('ui.restart')}</button>`
+        : `<button class="btn sm primary" data-act="startChamp" data-arg="${c.id}">${prog.round === 0 ? this.t('ui.startRound') : this.t('ui.continueRound')} ${prog.round + 1}/${c.biomes.length}</button>${prog.round > 0 ? `<button class="link" data-act="resetChamp" data-arg="${c.id}">${this.t('ui.restart')}</button>` : ''}`;
+      return `<div class="card champ ${unlocked ? '' : 'lock'}"><b>${this.t('champs.' + c.id + '.name')}</b><small>${this.t('champs.' + c.id + '.desc')}</small><ul class="rounds">${list}</ul>${board}${trophy}<small>${CHAMP_POINTS.join(' / ')} ${this.t('ui.points')} · ${this.t('ui.rewardL')}: 🥇 ${c.rewards.gold.toLocaleString()} ${this.t('ui.credits')}</small>${btn}</div>`;
+    }).join('')}</div>`;
+  }
+
+  private dailyTab(): string {
+    const d = this.host.save.data;
+    const ch = todaysChallenge(d);
+    const st = dailyStatus(d, ch.date);
+    const mods = ch.modIds.map((m) => `<li><b>${this.t('mods.' + m + '.name')}</b> — ${this.t('mods.' + m + '.desc')}</li>`).join('');
+    return `<div class="cards"><div class="card champ daily"><b>${this.t('ui.daily')} · ${ch.date}</b>
+      <span class="lv">${this.t('biomes.' + ch.biome + '.name')} · ${this.t('modes.circuit.name')}</span>
+      <small>${this.t('ui.modifiers')}</small><ul class="rounds">${mods}</ul>
+      <small>${this.t('ui.rewardL')}: +${ch.reward.credits} ${this.t('ui.credits')} · +${ch.reward.techParts} ${this.t('ui.techParts')} · ${this.t('ui.streak')} ${st.streak}</small>
+      <small>${this.t('ui.finishTop2')}</small>
+      ${st.done ? `<span class="chip">✓ ${this.t('ui.doneToday')}</span>` : ''}
+      <button class="btn primary" data-act="startDaily">${this.t('ui.start')}</button></div></div>`;
+  }
+
+  private fmtSetting(key: keyof Settings, v: number): string {
+    if (key === 'fov') return `${v > 0 ? '+' : ''}${v}°`;
+    return `${Math.round(v * 100)}%`;
+  }
+
+  private settingsView(): string {
+    const st = this.host.save.data.settings;
+    const seg = (act: string, cur: string, opts: [string, string][]) => `<div class="seg">${opts.map(([v, label]) => `<button class="btn sm ${cur === v ? 'sel' : ''}" data-act="${act}" data-arg="${v}">${label}</button>`).join('')}</div>`;
+    const range = (key: keyof Settings, label: string, min: number, max: number, step: number) => `<label class="set"><span>${label}</span><input type="range" min="${min}" max="${max}" step="${step}" value="${st[key]}" data-set="${key}"><b data-val="${key}">${this.fmtSetting(key, st[key] as number)}</b></label>`;
+    return `<div class="panel">${this.header(this.t('ui.settings'))}
+      <h3>${this.t('ui.difficulty')}</h3>${seg('setDiff', st.difficulty, [['easy', this.t('ui.easy')], ['normal', this.t('ui.normal')], ['hard', this.t('ui.hard')]])}<p class="hint">${this.t('ui.diffHint')}</p>
+      <h3>${this.t('ui.graphics')}</h3>${seg('setQuality', st.quality, [['auto', this.t('ui.auto')], ['high', this.t('ui.high')], ['low', this.t('ui.low')]])}
+      <h3>${this.t('ui.settings')}</h3>
+      ${range('steer', this.t('ui.steerSens'), 0.5, 1.6, 0.05)}${range('fov', this.t('ui.fovSet'), -10, 14, 1)}${range('shake', this.t('ui.camShake'), 0, 1.5, 0.1)}${range('volume', this.t('ui.volume'), 0, 1, 0.05)}${range('touchScale', this.t('ui.touchSize'), 0.7, 1.4, 0.05)}
+    </div>`;
+  }
+
+  private achievementsView(): string {
+    const d = this.host.save.data;
+    const rows = ACHIEVEMENTS.map((a) => {
+      const [cur, tgt] = a.progress(d);
+      const got = d.achievements.includes(a.id);
+      return `<div class="item ${got ? 'on' : ''}"><div class="grow"><b>${got ? '🏆 ' : ''}${this.t('ach.' + a.id + '.name')}</b><small>${this.t('ach.' + a.id + '.desc')}</small>
+        <div class="bar"><i style="width:${Math.round((cur / tgt) * 100)}%"></i></div></div><span class="chip cr">+${a.reward}</span></div>`;
+    }).join('');
+    return `<div class="panel wide">${this.header(this.t('ui.achievements') + ` ${d.achievements.length}/${ACHIEVEMENTS.length}`)}${rows}</div>`;
   }
 
   // ---- garage ----
@@ -276,9 +370,14 @@ export class Menus {
       <hr>${lines}
       <div class="line"><span>${this.t('results.multiplier')}</span><b>×${p.multiplier.toFixed(2)}</b></div>
       ${p.firstBoss ? `<div class="bonus">${this.t('results.bossFirst')}</div>` : ''}
+      ${r.daily ? `<div class="bonus">${this.t('ui.dailyClaimed')} +${r.daily.credits} ${this.t('ui.credits')} · +${r.daily.techParts} ${this.t('ui.techParts')} · ${this.t('ui.streak')} ${r.daily.streak}</div>` : r.dailyAttempt ? `<div class="hint">${this.t('ui.finishTop2')}</div>` : ''}
+      ${r.champ ? `<h3>${this.t('ui.standings')} · ${this.t('ui.round')} ${r.champ.round}/${r.champ.rounds}</h3><div class="board">${r.champ.standings.map((n, i) => `<span class="${n === 'YOU' ? 'me' : ''}">${i + 1}. ${n}</span>`).join('')}</div>${r.champ.finished ? `<div class="bonus">🏆 ${r.champ.trophy ? this.t('ui.' + r.champ.trophy) : '—'} · +${r.champ.credits} ${this.t('ui.credits')} · +${r.champ.techParts} ${this.t('ui.techParts')}</div>` : ''}` : ''}
+      ${r.achievements?.length ? `<div class="bonus">${r.achievements.map((a) => '🏆 ' + this.t('ach.' + a + '.name')).join(' · ')}</div>` : ''}
       <div class="line total"><span>${this.t('results.total')}</span><b>+${p.credits.toLocaleString()} ${this.t('ui.credits')}${p.techParts ? ` · +${p.techParts} ${this.t('ui.techParts')}` : ''}</b></div>
       <div class="menu-buttons row">
-        <button class="btn primary" data-act="retry">${this.t('ui.retry')}</button>
+        ${r.champ && !r.champ.finished ? `<button class="btn primary" data-act="startChamp" data-arg="${r.champ.id}">${this.t('ui.continueRound')} ${r.champ.round + 1}/${r.champ.rounds}</button>` : ''}
+        <button class="btn ${r.champ && !r.champ.finished ? '' : 'primary'}" data-act="retry">${this.t('ui.retry')}</button>
+        ${r.replayAvailable ? `<button class="btn" data-act="replay">▶ ${this.t('ui.replay')}</button>` : ''}
         <button class="btn" data-act="nav" data-arg="garage">${this.t('ui.garage')}</button>
         <button class="btn" data-act="nav" data-arg="locations">${this.t('ui.locations')}</button>
         <button class="btn" data-act="quit">${this.t('ui.menu')}</button>
