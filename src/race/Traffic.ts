@@ -74,6 +74,7 @@ export class Traffic {
     const color = kind === 'taxi' ? 0xf0c020 : BODY_COLORS[Math.floor(this.rng() * BODY_COLORS.length)];
     const car = new CarController(w.track, { ...BASE_STATS }, NO_MODS, this.model(kind, color));
     car.features = { ramps: [], pads: [] };
+    car.roadGripMul = w.gripMul;
     car.placeOnTrack(s, lane);
     if (oncoming) car.heading += Math.PI;
     const skill = 0.27 + this.rng() * 0.2;
@@ -156,6 +157,7 @@ export class Traffic {
         while (t.smokeAcc >= 1) { t.smokeAcc -= 1; emitSmoke(c.position.x + (Math.random() - 0.5), 0.9, c.position.z + (Math.random() - 0.5)); }
         if (t.wreckT > 22 && Math.hypot(c.position.x - focus.position.x, c.position.z - focus.position.z) > 70) { t.dead = true; if (t.kind === 'lane') { respawn++; if (t.oncoming) respawnOncoming++; } }
       } else if (t.ai) {
+        t.ai.hazardLimit = this.world.train ? this.world.train.limitFor(c) : Infinity;
         ctl = t.ai.update(c, dt, 1);
       } else {
         // cross traffic: hold course at cruise speed

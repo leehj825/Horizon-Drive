@@ -18,7 +18,7 @@ import { AIDriver } from './race/AIDriver';
 import { DRIFT_TRIAL_TIME, RaceManager } from './race/RaceManager';
 import { Traffic } from './race/Traffic';
 import { Hud } from './ui/Hud';
-import { Menus, type MenuHost, type ResultsData, type Screen } from './ui/Menus';
+import { Menus, type MenuHost, type RaceExtra, type ResultsData, type Screen } from './ui/Menus';
 import { CarController, type CarFx, type ControlState } from './vehicle/CarController';
 import { buildCar, type CarModel } from './vehicle/CarMeshBuilder';
 import { loadBiomeScene, type BiomeWorld, type Quality, type WorldOptions } from './world/BiomeLoader';
@@ -30,7 +30,7 @@ type RaceCtx = { type: 'free' } | { type: 'champ'; id: string } | { type: 'daily
 export interface GameOptions {
   /** Drive the player car with the AI (smoke tests / demos). */
   autopilot?: boolean;
-  autostart?: { biome: BiomeId; mode: RaceMode };
+  autostart?: { biome: BiomeId; mode: RaceMode; extra?: RaceExtra };
   level?: number;
   quality?: Partial<Quality>;
 }
@@ -58,6 +58,11 @@ export class Game implements MenuHost {
   private holdRace = false;
   private raceCtx: RaceCtx = { type: 'free' };
   private slip: { car: CarId; stake: number } | null = null;
+  private warnedWorks = -1;
+  private worksRng = Math.random;
+  private raceExtra: RaceExtra = {};
+  private special = false;
+  private headlight: THREE.SpotLight | null = null;
   private wreckCount = 0;
   private slowT = 0;
   private timeScale = 1;
@@ -152,7 +157,7 @@ export class Game implements MenuHost {
     addEventListener('keydown', unlock);
 
     if (opts.autostart && isBiomeUnlockedForStart(this.save, opts.autostart.biome, opts.level)) {
-      this.startRace(opts.autostart.biome, opts.autostart.mode);
+      this.startRace(opts.autostart.biome, opts.autostart.mode, opts.autostart.extra);
     } else {
       this.menus.show('main');
     }
@@ -167,6 +172,7 @@ export class Game implements MenuHost {
   /** (Re)build the scene for a biome at its current Location level. */
   loadWorld(biome: BiomeId, opts: WorldOptions = { perk: perkFor(this.save.data, biome) }): void {
     this.world?.dispose();
+    this.setHeadlights(opts.weather === 'night');
     this.world = loadBiomeScene(this.scene, biome, this.levelFor(biome), this.quality, opts);
     this.rebuildPostFx();
     const { stats, mods } = carSetup(this.save.data);
@@ -182,16 +188,40 @@ export class Game implements MenuHost {
       const tr = this.world.track;
       let hint = -1;
       const q = { idx: 0, s: 0, lat: 0, tx: 0, tz: 1 };
-      this.rig.blocked = tr.city ? (x, z) => { tr.query(x, z, hint, q); hint = q.idx; return Math.abs(q.lat) > tr.halfWidth + tr.shoulder - 1.2; } : null;
+      this.rig.blocked = tr.city ? (x, z) => {
+        if (tr.alleys.length) { const al = tr.alleyAt(x, z, 0); if (al) return Math.abs(al.v) > al.alley.hh - 1.2; }
+        tr.query(x, z, hint, q); hint = q.idx; return Math.abs(q.lat) > tr.halfWidth + tr.shoulder - 1.2;
+      } : null;
     }
     this.wirePlayerEvents();
     this.rig.snap();
     this.world.particles.setViewScale(this.canvas.clientHeight || 720);
   }
 
+  /** Road works pop up somewhere new on a straight at the start of every lap. */
+  private moveRoadWorks(): void {
+    const w = this.world;
+    if (!w || !w.track.city) { return; }
+    const straights = w.track.pickStraights(10, 120, [0, w.track.length]).filter((s) => s > 120 && s < w.track.length - 140 && !w.track.crossings.some((c) => Math.abs(c - s) < 20));
+    if (!straights.length) return;
+    const s = straights[Math.floor(this.worksRng() * straights.length)];
+    w.props.placeEvent(s, (this.worksRng() - 0.65) * w.track.halfWidth * 0.9);
+    this.warnedWorks = -1;
+  }
+
+  private setHeadlights(on: boolean): void {
+    if (this.headlight) { this.headlight.removeFromParent(); this.headlight.target.removeFromParent(); this.headlight.dispose(); this.headlight = null; }
+    if (!on) return;
+    const l = new THREE.SpotLight(0xfff2cc, 70, 80, 0.55, 0.5, 1.2);
+    l.position.set(0, 1.0, 1.8);
+    l.target.position.set(0, 0, 20);
+    this.playerModel.root.add(l, l.target);
+    this.headlight = l;
+  }
+
   private wirePlayerEvents(): void {
     this.player.setEvents({
-      onWall: (s) => { this.rig.shake(Math.min(0.9, s * 0.05)); this.sfx.wall(s); this.race?.hurtCargo(s * 0.012); },
+      onWall: (s) => { this.rig.shake(Math.min(0.9, s * 0.05)); this.sfx.wall(s); this.race?.hurtCargo(s * 0.008); },
       onLand: (dist) => {
         this.sfx.land(); this.rig.shake(0.25); this.race?.hurtCargo(0.03);
         if (dist >= 12) {
@@ -337,6 +367,7 @@ export class Game implements MenuHost {
     this.modelKey = `${d.car}:${d.paint}`;
     if (old) { old.root.removeFromParent(); old.dispose(); }
     if (this.player) this.player.model = this.playerModel;
+    if (this.headlight) this.setHeadlights(true);
   }
 
   refreshCar(): void {
@@ -349,7 +380,7 @@ export class Game implements MenuHost {
 
   setShowroom(close: boolean): void { this.showroomClose = close; }
 
-  startRace(biome: BiomeId, mode: RaceMode): void { this.launch(biome, mode, { type: 'free' }); }
+  startRace(biome: BiomeId, mode: RaceMode, extra: RaceExtra = {}): void { this.launch(biome, mode, { type: 'free' }, extra); }
 
   startChampionship(id: string): void {
     const c = champById(id);
@@ -360,18 +391,23 @@ export class Game implements MenuHost {
 
   startDaily(): void {
     const ch = todaysChallenge(this.save.data);
-    this.launch(ch.biome, 'circuit', { type: 'daily', ch });
+    this.launch(ch.biome, 'circuit', { type: 'daily', ch }, { weather: ch.mods.weather, reverse: ch.mods.reverse, routeSeed: ch.mods.routeSeed });
   }
 
-  private launch(biome: BiomeId, mode: RaceMode, ctx: RaceCtx): void {
+  private launch(biome: BiomeId, mode: RaceMode, ctx: RaceCtx, extra: RaceExtra = {}): void {
     this.raceCtx = ctx;
+    this.raceExtra = extra;
+    this.special = !!extra.routeSeed || !!extra.reverse || (!!extra.weather && extra.weather !== 'default');
     this.lastBiome = biome; this.lastMode = mode;
     if (this.state === 'replay') this.exitReplay(false);
     this.race?.dispose();
     this.race = null;
     this.save.data.selectedBiome = biome;
     this.save.save();
-    if (!this.world || this.world.preset.id !== biome || this.world.level !== this.levelFor(biome) || (this.world.opts.perk ?? null) !== perkFor(this.save.data, biome)) this.loadWorld(biome);
+    const wantOpts: WorldOptions = { perk: perkFor(this.save.data, biome), routeSeed: extra.routeSeed || null, weather: extra.weather ?? 'default', reverse: !!extra.reverse };
+    const wo = this.world?.opts;
+    const same = !!this.world && this.world.preset.id === biome && this.world.level === this.levelFor(biome) && (wo?.perk ?? null) === (wantOpts.perk ?? null) && (wo?.routeSeed ?? null) === (wantOpts.routeSeed ?? null) && (wo?.weather ?? 'default') === wantOpts.weather && !!wo?.reverse === !!wantOpts.reverse;
+    if (!same) this.loadWorld(biome, wantOpts);
     const world = this.world!;
     this.refreshCar();
     this.player.damage = this.save.data.damage;
@@ -406,7 +442,8 @@ export class Game implements MenuHost {
     world.coins.reset();
     world.props.reset();
     this.coinsCollected = 0; this.jumpBonus = 0; this.smashCount = 0; this.warnedJunction = -1; this.resultsShown = false;
-    this.prevLap = -1; this.prevNitro = 0.5;
+    this.prevLap = -1; this.prevNitro = 0.5; this.warnedWorks = -1;
+    this.moveRoadWorks();
     this.race = new RaceManager(world, mode, this.player, {
       onCountdown: (n) => { this.hud.center(String(n), 0.9, 'count'); this.sfx.beep(false); },
       onGo: () => { this.hud.center(this.i18n.t('ui.go'), 0.8, 'go'); this.sfx.beep(true); },
@@ -419,6 +456,20 @@ export class Game implements MenuHost {
         this.sfx.wall(8);
         if (rv.isPlayer) this.hud.center(this.i18n.t('ui.youEliminated'), 1.6, 'crash');
         else this.hud.toast(this.i18n.t('ui.eliminated', { name: rv.name }), 'gold', 1800);
+      },
+      onTrainWarning: () => {
+        const tr = world.train;
+        if (!tr) return;
+        const d = Math.hypot(tr.px - this.player.position.x, tr.pz - this.player.position.z);
+        this.sfx.beep(false);
+        if (d < 220) this.hud.toast(this.i18n.t('ui.trainComing'), 'gold', 2200);
+      },
+      onTrainHit: (car, speed) => {
+        if (car !== this.player) return;
+        this.rig.shake(1.0); this.sfx.wall(speed);
+        this.race?.replay.markCrash(this.race.time);
+        this.hud.center(this.i18n.t('ui.crash'), 1.1, 'crash');
+        this.slowT = 0.7;
       },
       onFail: (reason) => {
         this.rig.shake(1.2); this.sfx.wall(30);
@@ -441,7 +492,7 @@ export class Game implements MenuHost {
         if (byPlayer) { this.smashCount++; this.rig.shake(kind === 1 ? 0.22 : 0.12); this.sfx.wall(kind === 1 ? 4 : 2); }
         for (let i = 0; i < 6; i++) world.particles.emit(x, 0.4, z, (Math.random() - 0.5) * 6, 1 + Math.random() * 3, (Math.random() - 0.5) * 6, kind === 1 ? 0xff8a3a : kind === 3 ? 0x7fc8ff : 0xffffff, 0.9, 0.5, 12);
       },
-    }, mode === 'time_attack' ? (this.save.data.ghosts[biome] ?? null) : null, skills[mode], this.scene,
+    }, mode === 'time_attack' && !this.special ? (this.save.data.ghosts[biome] ?? null) : null, skills[mode], this.scene,
     world.preset.traffic.cars > 0 || world.intersections.length > 0 ? new Traffic(world, this.scene, world.intersections, { countMul: diff.traffic * (dailyMods?.trafficMul ?? 1) * (mode === 'speed_run' ? 0.4 : 1) * (perk === 'safety' ? 0.7 : 1), oncoming: mode === 'speed_run' ? 0 : dailyMods?.oncoming ?? null }) : null, world.props, champ ? [...champ.rivals] : null, this.slip ? CARS[this.slip.car].shape : null);
     this.race.ghost?.model.applyLoadout({});
     const rivals = this.race.racers.filter((x) => x.ai);
@@ -463,7 +514,7 @@ export class Game implements MenuHost {
     this.menus.show('none');
   }
 
-  retry(): void { this.launch(this.lastBiome, this.lastMode, this.raceCtx); }
+  retry(): void { this.launch(this.lastBiome, this.lastMode, this.raceCtx, this.raceExtra); }
 
   quit(): void {
     if (this.race && this.state !== 'menu' && this.player) this.save.data.damage = this.player.damage;
@@ -493,15 +544,15 @@ export class Game implements MenuHost {
       coins: this.coinsCollected, jumpBonus: this.jumpBonus,
       nearMisses: r.nearMisses, smashes: this.smashCount,
       difficulty: d.settings.difficulty, wrecks: this.wreckCount, jumps: this.player.jumps,
-      score: this.player.driftScore, integrity: r.cargo, failed: r.failed, stake: this.slip?.stake, prizeCar: this.slip?.car ?? null,
+      noRecords: this.special, score: this.player.driftScore, integrity: r.cargo, failed: r.failed, stake: this.slip?.stake, prizeCar: this.slip?.car ?? null,
     };
     const prevBest = mode === 'drift_trial' ? d.bestScores[`${biome}:${mode}`] : d.bestTimes[`${biome}:${mode}`];
     d.damage = this.player.damage;
     const payout = computePayout(d, stats);
     applyPayout(d, stats, payout);
     recordStats(d, stats, payout.credits);
-    const newBest = mode === 'drift_trial' ? this.player.driftScore > (prevBest ?? 0) : (mode === 'time_attack' || (rank === 1 && !r.failed)) && (prevBest === undefined || time < prevBest);
-    if (r.bestLapGhost) {
+    const newBest = this.special ? false : mode === 'drift_trial' ? this.player.driftScore > (prevBest ?? 0) : (mode === 'time_attack' || (rank === 1 && !r.failed)) && (prevBest === undefined || time < prevBest);
+    if (r.bestLapGhost && !this.special) {
       const old = d.ghosts[biome];
       if (!old || r.bestLapGhost.time < old.time) d.ghosts[biome] = r.bestLapGhost;
       if (!(biome in d.bestLaps) || r.bestLapGhost.time < d.bestLaps[biome]) d.bestLaps[biome] = r.bestLapGhost.time;
@@ -516,7 +567,7 @@ export class Game implements MenuHost {
     } else if (ctx.type === 'daily') {
       daily = claimDaily(d, ctx.ch, rank);
     }
-    const timeMedal = mode === 'time_attack' ? awardMedal(d, biome, time) : undefined;
+    const timeMedal = mode === 'time_attack' && !this.special ? awardMedal(d, biome, time) : undefined;
     const achievements = checkAchievements(d);
     this.save.save();
     this.sfx.finish(rank === 1);
@@ -674,7 +725,12 @@ export class Game implements MenuHost {
     const active = race.phase !== 'countdown';
     const got = world.coins.update(dt, this.time, p.position.x, p.position.z, p.position.y, p.mods.magnetRadius, active && race.phase === 'racing');
     if (got) { this.coinsCollected += got; this.sfx.coin(); }
-    if (p.lap !== this.prevLap) { if (p.lap > this.prevLap) world.coins.reset(); this.prevLap = p.lap; }
+    if (p.lap !== this.prevLap) { if (p.lap > this.prevLap) { world.coins.reset(); if (p.lap > 0) this.moveRoadWorks(); } this.prevLap = p.lap; }
+    if (world.props.eventS >= 0 && race.phase === 'racing') {
+      const L = world.track.length;
+      const ahead = (((world.props.eventS - p.tq.s) % L) + L) % L;
+      if (ahead < 130 && ahead > 25 && this.warnedWorks !== world.props.eventS) { this.warnedWorks = world.props.eventS; this.hud.toast(this.i18n.t('ui.roadWorks'), 'gold', 1500); }
+    }
     if (this.prevNitro < 0.999 && p.nitro >= 0.999 && race.phase === 'racing') this.hud.toast(this.i18n.t('ui.boostReady'), 'cyan', 1200);
     this.prevNitro = p.nitro;
     // red signal ahead: cross traffic is about to cross

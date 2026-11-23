@@ -97,6 +97,18 @@ export function buildCity(track: Track, preset: BiomePreset, group: THREE.Group,
   for (let gx = gx0; gx < gx1; gx++) for (let gy = gy0; gy < gy1; gy++) {
     const cx = (gx + 0.5) * P, cz = (gy + 0.5) * P;
     if (inPlaza(cx, cz)) continue;
+    const al = track.alleys.find((a) => Math.hypot((a.ax + a.bx) / 2 - cx, (a.az + a.bz) / 2 - cz) < 6);
+    if (al) {
+      // an alley runs through this block: two long buildings flank it
+      const across = P / 2 - edge - al.hh - 0.8, alongLen = P - 2 * edge;
+      for (const sg of [-1, 1]) {
+        const off = al.hh + 0.8 + across / 2;
+        const h = (style === 'harbor' ? 10 : 18) + rng() * (style === 'harbor' ? 12 : 55);
+        const alongX = Math.abs(al.dx) > 0.5;
+        towers.push({ x: cx + al.px * sg * off, y: 0.07, z: cz + al.pz * sg * off, rot: 0, sx: alongX ? alongLen : across, sy: h, sz: alongX ? across : alongLen });
+      }
+      continue;
+    }
     for (let i = 0; i < 2; i++) for (let j = 0; j < 2; j++) {
       const w = lot * (0.82 + rng() * 0.18), d = lot * (0.82 + rng() * 0.18);
       const lx = cx + (i ? 1 : -1) * (lot / 2 + 1.1), lz = cz + (j ? 1 : -1) * (lot / 2 + 1.1);

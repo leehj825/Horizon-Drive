@@ -42,6 +42,7 @@ export class Hud {
   private mini: HTMLCanvasElement;
   private mctx: CanvasRenderingContext2D;
   private miniPath: [number, number][] = [];
+  private miniAlleys: [number, number, number, number][] = [];
   private miniScale = 1;
   private miniCx = 0;
   private miniCz = 0;
@@ -95,6 +96,7 @@ export class Hud {
 
   setTrack(track: Track): void {
     this.miniPath = [];
+    this.miniAlleys = track.alleys.map((a) => [a.ax, a.az, a.bx, a.bz]);
     let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity;
     for (let i = 0; i < track.n; i += 6) {
       this.miniPath.push([track.px[i], track.pz[i]]);
@@ -184,6 +186,9 @@ export class Hud {
     g.beginPath();
     this.miniPath.forEach(([x, z], i) => (i ? g.lineTo(px(x), pz(z)) : g.moveTo(px(x), pz(z))));
     g.closePath(); g.stroke();
+    g.strokeStyle = 'rgba(25,230,255,0.9)'; g.lineWidth = 2; g.setLineDash([4, 3]);
+    for (const [ax, az, bx, bz] of this.miniAlleys) { g.beginPath(); g.moveTo(px(ax), pz(az)); g.lineTo(px(bx), pz(bz)); g.stroke(); }
+    g.setLineDash([]);
     // start marker
     g.fillStyle = '#ffd24a'; g.fillRect(px(this.miniPath[0][0]) - 3, pz(this.miniPath[0][1]) - 3, 6, 6);
     for (const r of racers) {

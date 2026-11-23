@@ -40,6 +40,9 @@ Debug URL flags: `?autostart=neon_street:circuit` (jump into a race), `&level=5`
 * **Garage:** four cars (Street Coupe, Rally Hatch, Road Muscle, Neon Hyper) with different shapes and stats, eight paints, plus the vehicle upgrades and equipment.
 * **Street extras:** oncoming traffic in the left half of the road, road-closed barricades on side streets, smashable cones, barrels, bins and sign posts, wall-scrape sparks.
 * **Onboarding and audio:** first-race how-to-play card; procedural synthwave music per biome plus engine and effects.
+* **Gameplay depth:** drift chains (×1–×5), mini-turbo tiers on clean drift exits, slipstream, persistent car damage with garage repairs, rival attitudes (aggressive / clean / blocker), tuning sliders (gearing, downforce), location focus perks (sponsors / racing / safe streets), passive track income, time-attack medals.
+* **Events:** Time Attack, 1v1 Duel, 4-Car Circuit, Elimination, Drift Trial, Bomb Run, Fragile Delivery, Pink Slip (win a rival's car), Boss Duel.
+* **Variety:** rain / fog / night and reversed circuits, a random-street generator (seeded city circuits), a freight train crossing at the harbor, road works that move every lap, and Lv.4 alley shortcuts through city blocks.
 * **Meta game:** Championships (Street Series, Open Road Cup: 3 rounds, 10/6/3/1 points, trophies and prizes), a **Daily Challenge** seeded by the date (same for everyone, offline; modifiers like heavy traffic, oncoming rush, tough rivals; streak bonus), 13 achievements.
 * **Settings:** Easy/Normal/Hard difficulty (rival speed, traffic, payout), graphics Auto/High/Low, steering response, field of view, camera shake, volume, touch button size.
 * **Cinematics:** race replay with chase / TV / orbit / low cameras and slow motion around crashes, crash slow-mo during the race, tire smoke.

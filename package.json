@@ -10,7 +10,7 @@
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
     "sim": "tsx sim/track-sim.ts && tsx sim/ai-sim.ts",
-    "test": "tsx sim/progression-test.ts && tsx sim/ai-sim.ts && tsx sim/track-sim.ts"
+    "test": "tsx sim/progression-test.ts && tsx sim/ai-sim.ts && tsx sim/track-sim.ts && tsx sim/proc-sim.ts && tsx sim/alley-sim.ts && tsx sim/drift-sim.ts"
   },
   "dependencies": {
     "three": "^0.187.0"

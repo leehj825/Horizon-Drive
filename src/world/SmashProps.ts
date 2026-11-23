@@ -45,8 +45,13 @@ export class SmashProps {
   private q = new THREE.Quaternion();
   private e = new THREE.Euler();
   smashed = 0;
+  /** Props of the moving road-works cluster, and where it currently stands. */
+  private eventProps: Prop[] = [];
+  eventS = -1;
+  private track!: Track;
 
   constructor(track: Track, junctions: { s: number }[], density = 1, seed = 5) {
+    this.track = track;
     const rng = mulberry32(seed * 131 + 3);
     const cone = flat([
       coloured(new THREE.ConeGeometry(0.34, 0.8, 8).translate(0, 0.4, 0), 0xff6a14),
@@ -103,6 +108,11 @@ export class SmashProps {
     }
     for (const c of track.crossings) for (const side of [-1, 1]) place(3, c - 9, side * (W - 0.8));
 
+    // road-works cluster (8 barrels), parked far off the track until placeEvent() puts it on a straight
+    for (let r = 0; r < 2; r++) for (let c = 0; c < 4; c++) {
+      this.props.push({ kind: 1, x: 0, y: 0, z: 0, vx: 0, vy: 0, vz: 0, rot: 0, tilt: 0, tiltV: 0, awake: false, slot: 0, home: { x: 99999, z: 99999, rot: 0 } });
+      this.eventProps.push(this.props[this.props.length - 1]);
+    }
     const counts = [0, 0, 0, 0];
     for (const p of this.props) p.slot = counts[p.kind]++;
     this.meshes = [cone, barrel, bin, sign].map((g, k) => {
@@ -113,6 +123,20 @@ export class SmashProps {
       return mesh;
     });
     this.reset();
+  }
+
+  /** Put the road-works cluster on the road at lap distance s, centred at lateral offset lat. */
+  placeEvent(s: number, lat: number): void {
+    const t = this.track;
+    this.eventS = s;
+    this.eventProps.forEach((p, k) => {
+      const r = Math.floor(k / 4), c = k % 4;
+      const pt = t.pointAt(s + (c - 1.5) * 1.9, lat + (r - 0.5) * 1.9);
+      p.home = { x: pt.x, z: pt.z, rot: 0 };
+      p.x = pt.x; p.z = pt.z; p.y = 0; p.vx = p.vy = p.vz = 0; p.tilt = 0; p.tiltV = 0; p.awake = false;
+      this.write(p);
+    });
+    this.meshes[1].instanceMatrix.needsUpdate = true;
   }
 
   private write(p: Prop): void {

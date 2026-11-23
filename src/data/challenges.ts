@@ -80,13 +80,17 @@ export interface DailyMods {
   trafficMul: number;
   oncoming: number | null;
   skillAdd: number;
+  weather: 'default' | 'rain' | 'night';
+  reverse: boolean;
+  /** Seed of a random city circuit (0 = the standard track). */
+  routeSeed: number;
 }
 
 export interface DailyChallenge {
   date: string;
   biome: BiomeId;
   mods: DailyMods;
-  modIds: ('heavyTraffic' | 'oncomingRush' | 'toughRivals')[];
+  modIds: ('heavyTraffic' | 'oncomingRush' | 'toughRivals' | 'storm' | 'night' | 'mirror' | 'randomStreet')[];
   reward: { credits: number; techParts: number };
 }
 
@@ -105,13 +109,20 @@ export function dailyChallenge(date: string, unlocked: BiomeId[]): DailyChalleng
   const rng = mulberry32(hash('hd-' + date));
   const pool = unlocked.filter((b) => !!BIOME_PRESETS[b]);
   const biome = pool[Math.floor(rng() * pool.length)] ?? 'neon_street';
-  const all: DailyChallenge['modIds'] = ['heavyTraffic', 'oncomingRush', 'toughRivals'];
-  const ids = all.filter(() => rng() < 0.55);
+  const all: DailyChallenge['modIds'] = ['heavyTraffic', 'oncomingRush', 'toughRivals', 'storm', 'night', 'mirror'];
+  const ids = all.filter(() => rng() < 0.4);
   if (!ids.length) ids.push(all[Math.floor(rng() * all.length)]);
+  if (ids.includes('storm') && ids.includes('night')) ids.splice(ids.indexOf('night'), 1);
+  const isCity = !!BIOME_PRESETS[biome].route;
+  const routeSeed = isCity && rng() < 0.5 ? 1 + Math.floor(rng() * 9000) : 0;
+  if (routeSeed) ids.push('randomStreet');
   const mods: DailyMods = {
     trafficMul: ids.includes('heavyTraffic') ? 1.8 : 1,
     oncoming: ids.includes('oncomingRush') ? 0.75 : null,
     skillAdd: ids.includes('toughRivals') ? 0.06 : 0,
+    weather: ids.includes('storm') ? 'rain' : ids.includes('night') ? 'night' : 'default',
+    reverse: ids.includes('mirror'),
+    routeSeed,
   };
   const reward = { credits: 700 + ids.length * 250, techParts: ids.length >= 2 ? 2 : 1 };
   return { date, biome, mods, modIds: ids, reward };

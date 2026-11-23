@@ -38,13 +38,19 @@ export interface ResultsData {
   replayAvailable?: boolean;
 }
 
+export interface RaceExtra {
+  weather?: 'default' | 'rain' | 'fog' | 'night';
+  reverse?: boolean;
+  routeSeed?: number;
+}
+
 export interface MenuHost {
   save: SaveState;
   i18n: I18n;
   sfx: Synth;
   previewBiome(id: BiomeId): void;
   refreshCar(): void;
-  startRace(biome: BiomeId, mode: RaceMode): void;
+  startRace(biome: BiomeId, mode: RaceMode, extra?: RaceExtra): void;
   resume(): void;
   retry(): void;
   quit(): void;
@@ -64,6 +70,9 @@ export class Menus {
   screen: Screen = 'none';
   private mode: RaceMode = 'time_attack';
   private raceTab: 'free' | 'champ' | 'daily' = 'free';
+  private cond: NonNullable<RaceExtra['weather']> = 'default';
+  private reverse = false;
+  private random = false;
   private results: ResultsData | null = null;
   readonly root: HTMLElement;
 
@@ -130,9 +139,12 @@ export class Menus {
       case 'start': {
         const ps = pinkSlipPrize(d);
         if (this.mode === 'pink_slip' && (!ps || d.credits < ps.stake)) return;
-        this.host.startRace(d.selectedBiome, this.mode);
+        this.host.startRace(d.selectedBiome, this.mode, { weather: this.cond, reverse: this.reverse, routeSeed: this.random && BIOME_PRESETS[d.selectedBiome].route ? 1 + Math.floor(Math.random() * 9000) : 0 });
         return;
       }
+      case 'cond': this.cond = arg as NonNullable<RaceExtra['weather']>; sfx.click(); this.render(); return;
+      case 'toggleReverse': this.reverse = !this.reverse; sfx.click(); this.render(); return;
+      case 'toggleRandom': this.random = !this.random; sfx.click(); this.render(); return;
       case 'tab': sfx.click(); this.raceTab = arg as 'free' | 'champ' | 'daily'; this.render(); return;
       case 'startChamp': this.host.startChampionship(arg); return;
       case 'resetChamp': if (confirm(this.t('ui.resetConfirm'))) { delete d.champs[arg]; save.save(); } return;
@@ -250,6 +262,11 @@ export class Menus {
       <h3>${this.t('ui.selectLocation')}</h3><div class="cards">${cards}</div>
       <h3>${this.t('ui.selectEvent')}</h3><div class="cards">${modeBtns}</div>
       <div class="meta">${this.t('ui.par')} ${fmtTime(p.parTime)}${ghost ? ' · ' + ghost : ''}${rec.length ? `<br><span class="rec">★ ${this.t('ui.recommended')}: ${rec.join(', ')}</span>` : ''}</div>
+      <h3>${this.t('ui.conditions')}</h3>
+      <div class="seg">${(['default', 'rain', 'fog', 'night'] as const).map((c) => `<button class="btn sm ${this.cond === c ? 'sel' : ''}" data-act="cond" data-arg="${c}">${this.t('ui.cond_' + c)}</button>`).join('')}
+        <button class="btn sm ${this.reverse ? 'sel' : ''}" data-act="toggleReverse">↺ ${this.t('ui.reverse')}</button>
+        ${p.route ? `<button class="btn sm ${this.random ? 'sel' : ''}" data-act="toggleRandom">🎲 ${this.t('ui.randomStreet')}</button>` : ''}</div>
+      ${this.random && p.route ? `<p class="hint">${this.t('ui.randomHint')}</p>` : ''}
       <button class="btn primary big" data-act="start">${this.t('ui.start')}</button>
     </div>`;
   }

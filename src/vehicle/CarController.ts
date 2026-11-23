@@ -90,6 +90,8 @@ export class CarController {
   damage = 0;
   private pullDir = Math.random() < 0.5 ? -1 : 1;
   private warned = 0;
+  /** Weather grip multiplier (1 = dry). */
+  roadGripMul = 1;
   /** Free-roaming body (cross traffic): ignores the track surface, walls and lap progress. */
   free = false;
   /** Seconds of reduced steering after a crash. */
@@ -191,12 +193,13 @@ export class CarController {
       this.hint = q0.idx;
     }
     const q = this.tq;
-    this.offroad = !this.free && Math.abs(q.lat) > track.halfWidth + 0.4;
+    const inAlley = !this.free && track.alleys.length > 0 && !!track.alleyAt(this.position.x, this.position.z);
+    this.offroad = !this.free && !inAlley && Math.abs(q.lat) > track.halfWidth + 0.4;
     let roadGrip = preset.friction;
     if (preset.surface === 'asphalt') roadGrip *= 1 + mods.asphaltGrip;
     else if (mods.ignoreSoft) roadGrip = Math.max(roadGrip, 0.97);
     const softGrip = mods.ignoreSoft ? 0.9 : 0.5;
-    const gripMul = this.offroad ? softGrip : roadGrip;
+    const gripMul = (this.offroad ? softGrip : roadGrip) * this.roadGripMul;
     const speedCap = this.offroad ? (mods.ignoreSoft ? 0.92 : 0.6) : 1;
 
     let fx_ = Math.sin(this.heading), fz_ = Math.cos(this.heading);
@@ -357,6 +360,32 @@ export class CarController {
     const over = Math.abs(q.lat) - wallLat;
     this.wallContact = Math.max(0, this.wallContact - dt);
     if (over <= 0) return;
+    if (track.alleys.length) {
+      const al = track.alleyAt(this.position.x, this.position.z, 0.6);
+      if (al) {
+        // cut-through alley: no main wall, but the alley's own side walls
+        const a = al.alley, ov = Math.abs(al.v) - a.hh;
+        if (ov > 0) {
+          const sg = al.v > 0 ? 1 : -1;
+          this.position.x -= a.px * sg * ov; this.position.z -= a.pz * sg * ov;
+          const vn = this.vx * a.px * sg + this.vz * a.pz * sg;
+          if (vn > 0) {
+            this.vx -= (1 + WALL_BOUNCE) * vn * a.px * sg; this.vz -= (1 + WALL_BOUNCE) * vn * a.pz * sg;
+            if (vn > 3) {
+              const pen = (1 - this.stats.wallKeep) * Math.min(1, vn / 14);
+              this.hurt(vn * 0.0065);
+              this.vx *= 1 - pen; this.vz *= 1 - pen;
+              if (this.wallContact <= 0) { this.wallHits++; this.events.onWall?.(vn); }
+              this.driftDirty = true;
+            }
+            this.wallContact = 0.25;
+          }
+          const drag = Math.exp(-1.3 * dt);
+          this.vx *= drag; this.vz *= drag;
+        }
+        return;
+      }
+    }
     const sign = q.lat > 0 ? 1 : -1;
     const nx = track.nx(q.idx) * sign, nz = track.nz(q.idx) * sign; // points outward
     this.position.x -= nx * over;

@@ -51,6 +51,8 @@ export interface RaceEvents {
   onEliminated?: (racer: Racer) => void;
   /** The run failed (bomb exploded, cargo destroyed). */
   onFail?: (reason: 'bomb' | 'cargo') => void;
+  onTrainWarning?: () => void;
+  onTrainHit?: (car: CarController, speed: number) => void;
 }
 
 /** Fixed attitudes of the named rivals. */
@@ -101,6 +103,7 @@ export class RaceManager {
     const w = world;
     this.laps = lapsFor(mode);
     playerCar.features = w.features;
+    playerCar.roadGripMul = w.gripMul;
     const slot = mode === 'time_attack' ? 0 : Math.min(rivalSkills.length, 3);
     const gs = w.gridSlot(slot);
     playerCar.placeOnTrack(gs.s, gs.lat);
@@ -116,6 +119,7 @@ export class RaceManager {
       const car = new CarController(w.track, { ...BASE_STATS }, NO_MODS, model);
       // AI ignores ramps (they sit on the left side of the road) but takes boost pads
       car.features = { ramps: [], pads: w.features.pads };
+      car.roadGripMul = w.gripMul;
       const g = w.gridSlot(k);
       car.placeOnTrack(g.s, g.lat);
       car.locked = true;
@@ -129,6 +133,13 @@ export class RaceManager {
       car.setEvents({});
     });
     this.rubber = mode !== 'boss';
+    if (w.train) {
+      w.train.onWarning = () => this.events.onTrainWarning?.();
+      w.train.onHit = (car, speed) => {
+        this.traffic?.registerHit(car, 20);
+        this.events.onTrainHit?.(car, speed);
+      };
+    }
     if (traffic) {
       traffic.events.onWreck = (t) => this.events.onWreck?.(t.car);
       traffic.events.onNearMiss = () => {
@@ -169,6 +180,7 @@ export class RaceManager {
     this.time += dt;
     this.refreshEveryone();
     for (const r of this.racers) if (r.ai) r.ai.others = this.everyone;
+    if (this.world.train) for (const r of this.racers) if (r.ai) r.ai.hazardLimit = this.world.train.limitFor(r.car);
     // rubber band relative to the player
     const pp = this.player.car.progress;
     for (const r of this.racers) {
@@ -190,6 +202,8 @@ export class RaceManager {
     this.refreshEveryone();
     this.modeRules(dt);
     this.updateDraft(dt);
+    this.world.train?.update(dt, this.time);
+    this.world.train?.collide(this.everyone, dt);
     this.collide();
     this.props?.update(dt, this.everyone, (car, kind, x, z) => this.events.onSmash?.(kind, x, z, car === this.player.car));
     this.rank();
@@ -329,7 +343,7 @@ export class RaceManager {
       if (rv <= 0) continue;
       if (this.traffic) { this.traffic.registerHit(a, rv); this.traffic.registerHit(b, rv); }
       if (a === pc || b === pc) {
-        if (rv > 3) { this.events.onCollide(rv, pc.mods.bumper); this.hurtCargo(rv * 0.011); }
+        if (rv > 3) { this.events.onCollide(rv, pc.mods.bumper); this.hurtCargo(rv * 0.008); }
         if (rv > 13) this.events.onCrash?.(rv);
       }
     }

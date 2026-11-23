@@ -3,13 +3,13 @@ const { chromium } = require('playwright');
 (async () => {
   const [,, base = 'http://localhost:5199/'] = process.argv;
   const errs = [];
-  for (const spec of [['downtown_day', 'speed_run', 3], ['red_canyon', 'speed_run', 3], ['alpine_pass', 'speed_run', 3]]) {
+  for (const spec of [['neon_street', 'circuit', 4], ['harbor_docks', 'elimination', 4], ['downtown_day', 'delivery', 4], ['coast_highway', 'time_attack', 3]]) {
     const browser = await chromium.launch({ args: ['--use-gl=swiftshader', '--enable-webgl', '--ignore-gpu-blocklist', '--no-sandbox'] });
     const page = await browser.newPage({ viewport: { width: 640, height: 360 } });
     page.on('pageerror', (e) => errs.push(spec[0] + ' PAGEERROR: ' + e.message));
     page.on('console', (m) => { if (m.type() === 'error') errs.push(spec[0] + ' ' + m.text()); });
     await page.addInitScript(() => localStorage.setItem('hd_save_v1', JSON.stringify({ v: 1, tutorialSeen: true, tipShown: true, credits: 5000 })));
-    await page.goto(`${base}?autostart=${spec[0]}:${spec[1]}&bot=1&level=${spec[2]}&bloom=0&shadows=0`);
+    await page.goto(`${base}?autostart=${spec[0]}:${spec[1]}&bot=1&level=${spec[2]}${spec[3] || ''}&bloom=0&shadows=0`);
     await page.waitForTimeout(1500);
     const res = await page.evaluate(() => {
       const g = window.__hd;

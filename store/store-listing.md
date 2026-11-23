@@ -16,7 +16,9 @@ Horizon Drive is a stylized arcade racer with a light tycoon twist. Drift, boost
 
 • Handbrake drifts that fill your nitro — chain clean drifts for PERFECT DRIFT bonuses
 • Dangerous streets: civilian and oncoming traffic, cross traffic, near-miss bonuses, smashable props and real crashes
-• Time Attack with your own ghost, 1v1 duels, 4-car circuits and boss duels
+• Nine events: Time Attack with your ghost, duels, circuits, Elimination, Drift Trial, Bomb Run, Fragile Delivery, Pink Slip (win rivals' cars) and boss duels
+• Drift chains, mini-turbo, slipstream, car damage and garage repairs, rivals with attitude
+• Rain, fog, night, reversed circuits and a random-street generator; a freight train crossing and road works that move every lap; alley shortcuts at Lv.4
 • Championships, a new Daily Challenge every day and 13 achievements
 • Garage: 4 cars, 8 paints, upgrades and swappable equipment that really change how you drive
 • Upgrade each location from Lv.1 to Lv.5: sponsors, boost pads, jump ramps, grandstands and fireworks
@@ -32,7 +34,9 @@ Horizon Drive는 가벼운 타이쿤 요소를 더한 스타일리시 아케이�
 
 • 핸드브레이크 드리프트로 니트로를 채우고, 깔끔한 드리프트는 퍼펙트 드리프트 보너스
 • 위험한 거리: 일반·대향 차량, 횡단 차량, 아슬아슬 추월 보너스, 부서지는 소품과 실제 충돌 사고
-• 내 고스트와 겨루는 타임 어택, 1대1 듀얼, 4인 서킷, 보스 듀얼
+• 아홉 가지 이벤트: 고스트 타임 어택, 듀얼, 서킷, 탈락전, 드리프트 트라이얼, 폭탄 질주, 깨지기 쉬운 배달, 핑크슬립(라이벌의 차 획득), 보스 듀얼
+• 드리프트 연쇄, 미니 터보, 슬립스트림, 차량 손상과 수리, 개성 있는 라이벌
+• 비·안개·밤·역방향 코스와 랜덤 거리 생성, 열차 건널목과 랩마다 바뀌는 공사 구간, Lv.4 골목 지름길
 • 챔피언십, 매일 바뀌는 일일 챌린지, 업적 13종
 • 차고: 차량 4종, 도색 8가지, 업그레이드와 주행이 실제로 달라지는 교체 장비
 • 장소를 Lv.1에서 Lv.5까지 키우세요: 스폰서, 부스트 패드, 점프 램프, 관중석과 불꽃놀이

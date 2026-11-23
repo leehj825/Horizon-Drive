@@ -9,7 +9,7 @@ const opts: GameOptions = {};
 const auto = q.get('autostart');
 if (auto) {
   const [biome, mode] = auto.split(':');
-  opts.autostart = { biome: (biome || 'neon_street') as BiomeId, mode: (mode || 'time_attack') as RaceMode };
+  opts.autostart = { biome: (biome || 'neon_street') as BiomeId, mode: (mode || 'time_attack') as RaceMode, extra: { weather: (q.get('weather') || 'default') as 'default' | 'rain' | 'fog' | 'night', reverse: q.get('reverse') === '1', routeSeed: Number(q.get('seed')) || 0 } };
 }
 if (q.has('level')) opts.level = Math.max(1, Math.min(5, Number(q.get('level')) || 1));
 if (q.get('bot') === '1') opts.autopilot = true;

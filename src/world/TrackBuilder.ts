@@ -148,7 +148,7 @@ export function buildTrack(track: Track, preset: BiomePreset, level: number, opt
     const dashP: Placement[] = [];
     const poleP: Placement[] = [];
     for (const s of spots) {
-      track.wallGaps.push([s - STREET - 1, s + STREET + 1]);
+      track.wallGaps.push([s - STREET - 1, s + STREET + 1, 0]);
       const i = track.indexAt(s);
       const x = track.px[i], z = track.pz[i], h = track.heading(i);
       const cx = track.nx(i), cz = track.nz(i);
@@ -193,6 +193,51 @@ export function buildTrack(track: Track, preset: BiomePreset, level: number, opt
       { geo: unitBox(), mat: poleMat.clone(), local: new THREE.Matrix4().compose(new THREE.Vector3(0, 4.85, 0), new THREE.Quaternion(), new THREE.Vector3(0.8, 0.8, 0.5)) },
     ]);
   }
+  // ---- Lv.4 cut-through alleys: open the walls at both mouths, floor, edge lights, gate and signs ----
+  const alleyCoins: { x: number; y: number; z: number }[] = [];
+  if (track.alleys.length) {
+    const alleyRoad = mats(dbl(stdMat(preset.roadColor, { roughness: 0.6, flatShading: false })));
+    const edgeCol = preset.id === 'neon_street' ? 0x19e6ff : preset.cityStyle === 'harbor' ? 0xffa23a : 0x2f8cff;
+    const edgeMat = mats(dbl(new THREE.MeshBasicMaterial({ color: edgeCol })));
+    const dashMat = mats(new THREE.MeshBasicMaterial({ color: preset.laneColor }));
+    const bt = bannerTexture('SHORTCUT', '#ffffff', '#08131f', '#' + edgeCol.toString(16).padStart(6, '0')); disposables.push(bt);
+    const bannerMat = mats(new THREE.MeshBasicMaterial({ map: bt, side: THREE.DoubleSide }));
+    const postMat = mats(stdMat(0x232734, { metalness: 0.4, roughness: 0.5 }));
+    const dashP: Placement[] = [];
+    for (const a of track.alleys) {
+      track.wallGaps.push([a.sA - a.hh - 0.6, a.sA + a.hh + 0.6, a.sideA]);
+      track.wallGaps.push([a.sB - a.hh - 0.6, a.sB + a.hh + 0.6, a.sideB]);
+      const mx = (a.ax + a.bx) / 2, mz = (a.az + a.bz) / 2, rot = Math.atan2(a.dx, a.dz);
+      const flat = (w: number, y: number, mat: THREE.Material, ox = 0) => {
+        const g = new THREE.PlaneGeometry(w, a.len); g.rotateX(-Math.PI / 2);
+        const m = new THREE.Mesh(geom(g), mat);
+        m.position.set(mx + a.px * ox, y, mz + a.pz * ox); m.rotation.y = rot; m.receiveShadow = true;
+        group.add(m);
+      };
+      flat(2 * a.hh, 0.085, alleyRoad);
+      flat(0.34, 0.095, edgeMat, a.hh - 0.4);
+      flat(0.34, 0.095, edgeMat, -(a.hh - 0.4));
+      for (let u = W + 2; u < a.len - W - 2; u += 6) dashP.push({ x: a.ax + a.dx * u, y: 0.1, z: a.az + a.dz * u, rot, sx: 0.28, sy: 0.04, sz: 2.4 });
+      for (let u = W + 4; u <= a.len - W - 4; u += (a.len - 2 * W - 8) / 6) alleyCoins.push({ x: a.ax + a.dx * u, y: 0.9, z: a.az + a.dz * u });
+      // gate over the mouth (street A side) and a roadside board before it
+      const gx = a.ax + a.dx * (W + 0.8), gz = a.az + a.dz * (W + 0.8);
+      for (const sg of [-1, 1]) {
+        const p = new THREE.Mesh(geom(new THREE.BoxGeometry(0.5, 6, 0.5)), postMat);
+        p.position.set(gx + a.px * sg * (a.hh + 0.5), 3, gz + a.pz * sg * (a.hh + 0.5)); group.add(p);
+      }
+      const beam = new THREE.Mesh(geom(new THREE.BoxGeometry(2 * a.hh + 2, 0.5, 0.5)), postMat);
+      beam.position.set(gx, 6.1, gz); beam.rotation.y = rot + Math.PI / 2; group.add(beam);
+      const banner = new THREE.Mesh(geom(new THREE.PlaneGeometry(2 * a.hh + 0.4, 1.3)), bannerMat);
+      banner.position.set(gx - a.dx * 0.3, 5.2, gz - a.dz * 0.3); banner.lookAt(a.ax, 5.2, a.az); group.add(banner);
+      const sp = track.pointAt(a.sA - 24, a.sideA * (W - 0.4));
+      const board = new THREE.Mesh(geom(new THREE.PlaneGeometry(6, 1.6)), bannerMat);
+      board.position.set(sp.x, 3.6, sp.z);
+      const behind = track.pointAt(a.sA - 70, 0); board.lookAt(behind.x, 3.6, behind.z); group.add(board);
+      const stand = new THREE.Mesh(geom(new THREE.BoxGeometry(0.3, 3.6, 0.3)), postMat); stand.position.set(sp.x, 1.8, sp.z); group.add(stand);
+    }
+    wantInst(dashP, [{ geo: unitBox(), mat: dashMat }]);
+  }
+
   // ---- road-closed barricades across the side streets the race does not use ----
   if (city) {
     const signalled = intersections.map((it) => it.s);
@@ -216,10 +261,10 @@ export function buildTrack(track: Track, preset: BiomePreset, level: number, opt
     animators.push((_dt, time) => { blink.color.setScalar(0); blink.color.setHex(Math.sin(time * 8) > 0 ? 0xffa21a : 0x3a2204); });
   }
   /** Lap ranges that are not open junction gaps (for wall decoration strips). */
-  const solidRanges = (): [number, number][] => {
+  const solidRanges = (side = 0): [number, number][] => {
     const out: [number, number][] = [];
     let cur = 0;
-    for (const [a, b] of [...track.wallGaps].sort((p, q) => p[0] - q[0])) { if (a > cur) out.push([cur, a]); cur = b; }
+    for (const [a, b] of [...track.wallGaps].filter((g) => g[2] === 0 || side === 0 || g[2] === side).sort((p, q) => p[0] - q[0])) { if (a > cur) out.push([cur, a]); cur = Math.max(cur, b); }
     if (cur < L) out.push([cur, L]);
     return out;
   };
@@ -230,7 +275,7 @@ export function buildTrack(track: Track, preset: BiomePreset, level: number, opt
     addMesh(wallGeometry(track, sgn * W, preset.id === 'red_canyon' ? 0.7 : 1.05, 0.55), wallMat);
     if (preset.wallGlow !== null) {
       const glowMat = mats(dbl(new THREE.MeshBasicMaterial({ color: preset.wallGlow })));
-      for (const [a, b] of solidRanges()) addMesh(ribbonGeometry(track, { latA: sgn * (W + 0.1), latB: sgn * (W + 0.42), y: 1.07, s0: a, s1: b }), glowMat, 0, false);
+      for (const [a, b] of solidRanges(sgn)) addMesh(ribbonGeometry(track, { latA: sgn * (W + 0.1), latB: sgn * (W + 0.42), y: 1.07, s0: a, s1: b }), glowMat, 0, false);
     }
   }
   if (preset.id === 'alpine_pass') {
@@ -442,6 +487,7 @@ export function buildTrack(track: Track, preset: BiomePreset, level: number, opt
   // ---- Location Lv.3: boost pads ----
   const features: TrackFeatures = { ramps: [], pads: [] };
   const bonusCoins: { x: number; y: number; z: number }[] = [];
+  bonusCoins.push(...alleyCoins);
   const padS: number[] = [];
   if (feat.boostPads) {
     const racing = opts.perk === 'racing';

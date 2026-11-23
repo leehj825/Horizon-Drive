@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import type { BiomePreset } from '../data/biomes';
 import { buildGridRoute, type BuiltRoute } from './gridRoute';
+import { alleyCoords, type Alley } from './alleys';
 
 export interface TrackQuery {
   idx: number;
@@ -33,15 +34,17 @@ export class Track {
   readonly crossings: number[] = [];
   /** Lap distance of each corner's apex (city only). */
   readonly cornerS: number[] = [];
+  /** Cut-through alleys (enabled for city tracks at Location Lv.4+). */
+  alleys: Alley[] = [];
   /** Drift score zones as fractions of the lap. */
   driftZones: [number, number][];
   readonly shoulder: number;
   /** Lap-distance ranges where the side walls are open (junctions). */
-  readonly wallGaps: [number, number][] = [];
+  readonly wallGaps: [number, number, number][] = [];
   private grid = new Map<number, number[]>();
   private readonly cell = 24;
 
-  constructor(readonly preset: BiomePreset, samples = 900) {
+  constructor(readonly preset: BiomePreset, samples = 900, reverse = false) {
     let pts: THREE.Vector3[];
     let route: BuiltRoute | null = null;
     if (preset.route) {
@@ -61,6 +64,7 @@ export class Track {
       pts = curve.getSpacedPoints(samples);
       pts.pop(); // closed: last == first
     }
+    if (reverse) pts.reverse();
     this.driftZones = preset.driftZones;
     this.n = pts.length;
     this.px = new Float32Array(this.n);
@@ -103,7 +107,12 @@ export class Track {
       for (const c of route.crossings) this.crossings.push(this.query(c.x, c.z, -1).s);
       this.crossings.sort((a, b) => a - b);
       for (const c of route.corners) this.cornerS.push(this.query(c.x, c.z, -1).s);
-      this.driftZones = preset.route.drift.map(([i, j]) => [Math.max(0, (this.cornerS[i] - 22) / this.length), Math.min(1, (this.cornerS[j] + 26) / this.length)] as [number, number]);
+      this.driftZones = [];
+      for (const [i, j] of preset.route.drift) {
+        const lo = Math.min(this.cornerS[i], this.cornerS[j]), hi = Math.max(this.cornerS[i], this.cornerS[j]);
+        if (hi - lo > this.length * 0.5) continue; // a zone that would wrap over the start line
+        this.driftZones.push([Math.max(0, (lo - 24) / this.length), Math.min(1, (hi + 24) / this.length)]);
+      }
     }
   }
 
@@ -111,8 +120,20 @@ export class Track {
     return Math.floor(x / this.cell) * 100003 + Math.floor(z / this.cell);
   }
 
-  inGap(s: number): boolean {
-    for (const [a, b] of this.wallGaps) if (s >= a && s <= b) return true;
+  /** Is the wall open at lap distance s? `side` 0 = either side. */
+  setAlleys(list: Alley[]): void { this.alleys = list; }
+
+  /** The alley whose corridor contains (x,z), with local coordinates. `margin` widens the corridor. */
+  alleyAt(x: number, z: number, margin = 0.3): { alley: Alley; u: number; v: number } | null {
+    for (const a of this.alleys) {
+      const { u, v } = alleyCoords(a, x, z);
+      if (u >= -1 && u <= a.len + 1 && Math.abs(v) <= a.hh + margin) return { alley: a, u, v };
+    }
+    return null;
+  }
+
+  inGap(s: number, side = 0): boolean {
+    for (const [a, b, sd] of this.wallGaps) if (s >= a && s <= b && (sd === 0 || side === 0 || sd === side)) return true;
     return false;
   }
 
@@ -141,14 +162,19 @@ export class Track {
     let best = -1, bd = Infinity;
     if (hint >= 0) {
       const W = 24;
-      for (let o = -W; o <= W; o++) {
-        const i = this.wrap(hint + o);
-        const dx = x - this.px[i], dz = z - this.pz[i];
-        const d = dx * dx + dz * dz;
-        if (d < bd) { bd = d; best = i; }
+      const centers = [hint];
+      // inside an alley the nearest street can be the one at the far end: look there too
+      if (this.alleys.length && this.alleyAt(x, z, 6)) for (const a of this.alleys) centers.push(a.iA, a.iB);
+      for (const c of centers) {
+        for (let o = -W; o <= W; o++) {
+          const i = this.wrap(c + o);
+          const dx = x - this.px[i], dz = z - this.pz[i];
+          const d = dx * dx + dz * dz;
+          if (d < bd) { bd = d; best = i; }
+        }
       }
       // fell off the window (teleport / reset): search everything
-      if (bd > 90 * 90) hint = -1;
+      if (bd > 48 * 48) hint = -1;
     }
     if (hint < 0) {
       bd = Infinity;

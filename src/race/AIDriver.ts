@@ -16,6 +16,8 @@ export class AIDriver {
   avoid: AvoidMode = 'none';
   /** Drive against the lap direction (oncoming traffic). */
   reverse = false;
+  /** External speed limit (m/s), e.g. a train crossing ahead. */
+  hazardLimit = Infinity;
   style: DriveStyle = 'clean';
   /** The human player (rivals with attitude react to it). */
   target: CarController | null = null;
@@ -83,7 +85,7 @@ export class AIDriver {
     const kap = this.reverse ? track.curvatureBehind(q.idx, 28 + speed * 1.3) : track.curvatureAhead(q.idx, 28 + speed * 1.3);
     const aLat = 25 * this.cornering * this.skill;
     const vCorner = kap > 1e-4 ? Math.sqrt(aLat / kap) : 999;
-    const target = Math.min(car.stats.maxSpeed * this.skill * targetScale, vCorner, limit);
+    const target = Math.min(car.stats.maxSpeed * this.skill * targetScale, vCorner, limit, this.hazardLimit);
     const throttle = Math.max(-1, Math.min(1, (target - speed) / 3.5));
 
     // nitro on straights
@@ -91,7 +93,7 @@ export class AIDriver {
     if (this.nitroOn && (car.nitro < 0.06 || kap > 1 / 150 || this.blocked > 0)) this.nitroOn = false;
 
     // stuck recovery
-    if (speed < 2.5 && !car.locked && limit === Infinity) this.stuckT += dt; else this.stuckT = 0;
+    if (speed < 2.5 && !car.locked && limit === Infinity && this.hazardLimit === Infinity) this.stuckT += dt; else this.stuckT = 0;
     if (this.stuckT > 2.2) { car.respawn(); this.stuckT = 0; }
 
     const c = this.ctl;

@@ -77,6 +77,8 @@ export function pinkSlipPrize(save: SaveData): { car: CarId; stake: number } | n
 }
 
 export interface RaceStats {
+  /** Conditions/random streets do not count for records and medals. */
+  noRecords?: boolean;
   score?: number;
   /** Delivery cargo integrity 0..1. */
   integrity?: number;
@@ -181,6 +183,7 @@ export function applyPayout(save: SaveData, r: RaceStats, p: Payout): void {
   const key = `${r.biome}:${r.mode}`;
   if (p.stakeBack) save.credits += p.stakeBack;
   if (p.prizeCar && !save.carsOwned.includes(p.prizeCar)) save.carsOwned.push(p.prizeCar);
+  if (r.noRecords) return;
   if (r.mode === 'drift_trial') {
     if ((r.score ?? 0) > (save.bestScores[key] ?? 0)) save.bestScores[key] = r.score ?? 0;
     return;

@@ -57,7 +57,7 @@ export function wallGeometry(track: Track, lat: number, height: number, thick = 
     // inner bottom, inner top, outer top
     pos.push(cx + nx * inner, 0, cz + nz * inner, cx + nx * inner, height, cz + nz * inner, cx + nx * outer, height, cz + nz * outer);
     nrm.push(-nx * sign, 0, -nz * sign, 0, 1, 0, 0, 1, 0);
-    if (k < cnt && !track.inGap((track.length * (k + 0.5)) / cnt)) {
+    if (k < cnt && !track.inGap((track.length * (k + 0.5)) / cnt, sign)) {
       const a = k * 3, b = a + 3;
       // face 1: inner vertical (a0,a1 -> b0,b1); face 2: top (a1,a2 -> b1,b2)
       idx.push(a, a + 1, b, b, a + 1, b + 1, a + 1, a + 2, b + 1, b + 1, a + 2, b + 2);
