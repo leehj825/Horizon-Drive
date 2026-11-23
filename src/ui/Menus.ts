@@ -1,6 +1,7 @@
 import { BIOME_ORDER, BIOME_PRESETS, type BiomeId } from '../data/biomes';
 import { EQUIPMENT_LIST, SLOTS, type EquipmentId, type SlotId } from '../data/equipment';
 import { CAR_IDS, CARS, PAINTS, type CarId } from '../data/cars';
+import { DRIFT_MEDALS, pinkSlipPrize } from '../data/progression';
 import { buyCar, buyEquipment, buyUpgrade, carSetup, selectCar, isBiomeUnlocked, modeAvailable, toggleEquip, upgradeLocation, type Payout, type RaceMode } from '../data/progression';
 import type { SaveState } from '../data/saveState';
 import { MAX_LOCATION_LEVEL, MAX_UPGRADE, UPGRADE_IDS, locationCost, payoutMultiplier, upgradeCost, type UpgradeId } from '../data/upgrades';
@@ -9,7 +10,7 @@ import type { Synth } from '../audio/Synth';
 import { fmtTime } from './Hud';
 import { ACHIEVEMENTS } from '../data/achievements';
 import { CHAMPIONSHIPS, CHAMP_POINTS, champProgress, champUnlocked, dailyStatus, type RoundResult } from '../data/challenges';
-import { todaysChallenge } from '../data/progression';
+import { repairCar, repairCost, todaysChallenge } from '../data/progression';
 import type { Difficulty, QualitySetting, Settings } from '../data/saveState';
 
 export type Screen = 'none' | 'main' | 'race' | 'garage' | 'locations' | 'results' | 'pause' | 'settings' | 'achievements';
@@ -26,6 +27,10 @@ export interface ResultsData {
   /** Championship round just finished. */
   champ?: RoundResult & { id: string; rounds: number };
   daily?: { credits: number; techParts: number; streak: number } | null;
+  failed?: boolean;
+  score?: number;
+  medal?: number;
+  slip?: { won: boolean; car: CarId; stake: number };
   dailyAttempt?: boolean;
   achievements?: string[];
   replayAvailable?: boolean;
@@ -49,7 +54,7 @@ export interface MenuHost {
   startReplay(): void;
 }
 
-const MODES: RaceMode[] = ['time_attack', 'duel', 'circuit', 'boss'];
+const MODES: RaceMode[] = ['time_attack', 'duel', 'circuit', 'elimination', 'drift_trial', 'speed_run', 'delivery', 'pink_slip', 'boss'];
 const esc = (s: string) => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]!);
 
 /** DOM menus: main, race setup, garage, locations, results, pause. Pure view over SaveState. */
@@ -111,7 +116,12 @@ export class Menus {
         return;
       }
       case 'mode': if (modeAvailable(d, d.selectedBiome, arg as RaceMode)) { sfx.click(); this.mode = arg as RaceMode; this.render(); } return;
-      case 'start': this.host.startRace(d.selectedBiome, this.mode); return;
+      case 'start': {
+        const ps = pinkSlipPrize(d);
+        if (this.mode === 'pink_slip' && (!ps || d.credits < ps.stake)) return;
+        this.host.startRace(d.selectedBiome, this.mode);
+        return;
+      }
       case 'tab': sfx.click(); this.raceTab = arg as 'free' | 'champ' | 'daily'; this.render(); return;
       case 'startChamp': this.host.startChampionship(arg); return;
       case 'resetChamp': if (confirm(this.t('ui.resetConfirm'))) { delete d.champs[arg]; save.save(); } return;
@@ -119,6 +129,7 @@ export class Menus {
       case 'setDiff': d.settings.difficulty = arg as Difficulty; sfx.click(); save.save(); return;
       case 'setQuality': d.settings.quality = arg as QualitySetting; sfx.click(); save.save(); this.host.applySettings(); return;
       case 'replay': this.host.startReplay(); return;
+      case 'repair': if (repairCar(d) === 'ok') { sfx.buy(); save.save(); this.host.refreshCar(); } return;
       case 'buyCar': if (buyCar(d, arg as CarId) === 'ok') { sfx.buy(); save.save(); this.host.refreshCar(); } return;
       case 'selCar': if (selectCar(d, arg as CarId)) { sfx.click(); save.save(); this.host.refreshCar(); } return;
       case 'paint': d.paint = Number(arg); sfx.click(); save.save(); this.host.refreshCar(); return;
@@ -202,13 +213,18 @@ export class Menus {
         <small>${unlocked ? this.t('biomes.' + id + '.desc') : '🔒 ' + this.t('ui.unlockHint', { biome: gate })}</small>
       </button>`;
     }).join('');
+    const slip = pinkSlipPrize(d);
     const modeBtns = MODES.map((m) => {
       const ok = modeAvailable(d, sel, m);
-      const best = d.bestTimes[`${sel}:${m}`];
+      const key = `${sel}:${m}`;
+      const best = m === 'drift_trial' ? d.bestScores[key] : d.bestTimes[key];
+      const bestTxt = best ? `${this.t('ui.best')} ${m === 'drift_trial' ? Math.round(best) : fmtTime(best)}` : '';
+      const lockTxt = m === 'boss' ? this.t('ui.bossHint') : m === 'pink_slip' ? this.t('ui.noPrize') : '';
+      const extra = m === 'pink_slip' && slip ? `<span class="lv">${this.t('ui.prize')}: ${this.t('cars.' + slip.car + '.name')} · ${this.t('ui.stake')}: ${slip.stake} ${this.t('ui.credits')}${d.credits < slip.stake ? ' ⚠ ' + this.t('ui.needStake') : ''}</span>` : m === 'drift_trial' ? `<span class="lv">🥉 ${DRIFT_MEDALS[0]} · 🥈 ${DRIFT_MEDALS[1]} · 🥇 ${DRIFT_MEDALS[2]}</span>` : '';
       return `<button class="card mode ${this.mode === m ? 'sel' : ''} ${ok ? '' : 'lock'}" data-act="mode" data-arg="${m}">
         <b>${this.t('modes.' + m + '.name')}</b>
-        <small>${ok ? this.t('modes.' + m + '.desc') : '🔒 ' + this.t('ui.bossHint')}</small>
-        ${best ? `<span class="lv">${this.t('ui.best')} ${fmtTime(best)}</span>` : ''}
+        <small>${ok ? this.t('modes.' + m + '.desc') : '🔒 ' + lockTxt}</small>${extra}
+        ${bestTxt ? `<span class="lv">${bestTxt}</span>` : ''}
       </button>`;
     }).join('');
     const p = BIOME_PRESETS[sel];
@@ -325,6 +341,7 @@ export class Menus {
     }).join('');
     const swatches = PAINTS.map((p, i) => `<button class="swatch ${d.paint === i ? 'on' : ''}" data-act="paint" data-arg="${i}" style="background:#${p[0].toString(16).padStart(6, '0')};box-shadow:inset 0 -6px 0 #${p[1].toString(16).padStart(6, '0')}" aria-label="paint ${i + 1}"></button>`).join('');
     return `<div class="panel wide garage">${this.header(this.t('ui.garage'))}
+      <div class="cond"><span>${this.t('ui.condition')}: <b>${Math.round((1 - d.damage) * 100)}%</b></span><div class="bar"><i style="width:${Math.round((1 - d.damage) * 100)}%"></i></div>${d.damage > 0.005 ? `<button class="btn sm primary" data-act="repair" ${d.credits < repairCost(d) ? 'disabled' : ''}>${this.t('ui.repair')} ${repairCost(d)} ${this.t('ui.credits')}</button>` : `<span class="chip">${this.t('ui.repaired')}</span>`}</div>
       <h3>${this.t('ui.vehicle')}</h3><div class="cards cars">${cars}</div>
       <div class="paints"><span>${this.t('ui.paint')}</span>${swatches}</div>
       <div class="statbar"><span>${kmh} ${this.t('ui.kmh')}</span><span>ACC ${stats.accel.toFixed(0)}</span><span>GRIP ${stats.grip.toFixed(1)}</span><span>NOS ×${(stats.nitroRate * mods.nitroDurationMul).toFixed(2)}</span></div>
@@ -363,8 +380,9 @@ export class Menus {
     const lines = p.lines.map((l) => `<div class="line"><span>${this.t('results.' + l.key)}</span><b>+${l.value}</b></div>`).join('');
     const won = r.position === 1;
     return `<div class="panel results">
-      <h2 class="${won ? 'win' : ''}">${won ? this.t('results.win') : this.t('results.lose')}</h2>
-      <div class="big-pos">${r.mode === 'time_attack' ? '' : this.t('results.ordinal' + Math.min(4, r.position))}</div>
+      <h2 class="${won && !r.failed ? 'win' : ''}">${r.failed ? this.t('results.failed') : won ? this.t('results.win') : this.t('results.lose')}</h2>
+      <div class="big-pos">${['time_attack', 'drift_trial', 'speed_run', 'delivery'].includes(r.mode) ? (r.mode === 'drift_trial' ? `${Math.round(r.score ?? 0)} ${r.medal ? ['', '🥉', '🥈', '🥇'][r.medal] : ''}` : '') : this.t('results.ordinal' + Math.min(4, r.position))}</div>
+      ${r.slip ? `<div class="bonus">${r.slip.won ? this.t('results.slipWon', { car: this.t('cars.' + r.slip.car + '.name') }) : this.t('results.slipLost') + ' −' + r.slip.stake}</div>` : ''}
       <div class="line"><span>${this.t('results.time')}</span><b>${fmtTime(r.time)}${r.newBest ? ` <em>${this.t('ui.newBest')}</em>` : ''}</b></div>
       <div class="line"><span>${this.t('results.bestLap')}</span><b>${fmtTime(r.bestLap)}</b></div>
       <hr>${lines}

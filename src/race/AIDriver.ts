@@ -2,6 +2,8 @@ import type { CarController, ControlState } from '../vehicle/CarController';
 
 const wrapAngle = (a: number) => Math.atan2(Math.sin(a), Math.cos(a));
 
+export type DriveStyle = 'clean' | 'aggressive' | 'blocker';
+
 /** What a driver does about a car in its way. */
 export type AvoidMode = 'swerve' | 'brake' | 'none';
 
@@ -14,6 +16,10 @@ export class AIDriver {
   avoid: AvoidMode = 'none';
   /** Drive against the lap direction (oncoming traffic). */
   reverse = false;
+  style: DriveStyle = 'clean';
+  /** The human player (rivals with attitude react to it). */
+  target: CarController | null = null;
+  private laneNow: number | null = null;
   /** Cars to look out for (set by the owner each step). */
   others: readonly CarController[] = [];
   private nitroOn = false;
@@ -41,6 +47,7 @@ export class AIDriver {
       const range = 14 + speed * 0.75;
       for (const o of this.others) {
         if (o === car) continue;
+        if (this.style === 'aggressive' && o === this.target) continue; // aggressive drivers do not dodge the player
         const dx = o.position.x - car.position.x, dz = o.position.z - car.position.z;
         const f = dx * sh + dz * ch;
         if (f < 1 || f > range) continue;
@@ -52,6 +59,17 @@ export class AIDriver {
         if (this.avoid === 'swerve') want = l > 0 ? -3.6 : 3.6;
       }
     }
+    // attitude: aggressive drivers chase the player's line, blockers mirror it in front
+    let laneWant = this.lane;
+    if (this.target && this.style !== 'clean') {
+      const t = this.target;
+      const sh = Math.sin(car.heading), ch = Math.cos(car.heading);
+      const dx = t.position.x - car.position.x, dz = t.position.z - car.position.z;
+      const f = dx * sh + dz * ch, l = dx * ch - dz * sh;
+      if (this.style === 'aggressive' && f > -6 && f < 16 && Math.abs(l) < 7 && t.speed > 12) laneWant = t.tq.lat;
+      else if (this.style === 'blocker' && f < -3 && f > -30 && Math.abs(l) < 9) laneWant = t.tq.lat;
+    }
+    this.laneNow = this.laneNow === null ? laneWant : this.laneNow + (laneWant - this.laneNow) * Math.min(1, dt * 2.6);
     this.offset += (want - this.offset) * Math.min(1, dt * (want !== 0 ? 4.5 : 1.6));
 
     const look = 7 + speed * 0.36;
@@ -86,6 +104,6 @@ export class AIDriver {
 
   private laneAt(car: CarController): number {
     const hw = car.track.halfWidth - 2.6;
-    return Math.max(-hw, Math.min(hw, this.lane + this.offset));
+    return Math.max(-hw, Math.min(hw, (this.laneNow ?? this.lane) + this.offset));
   }
 }

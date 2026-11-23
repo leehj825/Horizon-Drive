@@ -7,15 +7,15 @@ import { Music } from './audio/Music';
 import { Synth } from './audio/Synth';
 import { CameraRig } from './camera/CameraRig';
 import { BIOME_PRESETS, type BiomeId } from './data/biomes';
-import { CARS, PAINTS } from './data/cars';
+import { CARS, PAINTS, type CarId } from './data/cars';
 import { checkAchievements } from './data/achievements';
 import { champById, champProgress, claimDaily, recordChampRound, type DailyChallenge } from './data/challenges';
-import { applyPayout, carSetup, computePayout, DIFFICULTY, isBiomeUnlocked, recordStats, todaysChallenge, type RaceMode } from './data/progression';
+import { applyPayout, carSetup, computePayout, DIFFICULTY, isBiomeUnlocked, pinkSlipPrize, recordStats, todaysChallenge, type RaceMode } from './data/progression';
 import { SaveState } from './data/saveState';
 import { I18n } from './i18n/i18n';
 import { Input } from './input/Input';
 import { AIDriver } from './race/AIDriver';
-import { RaceManager, TOTAL_LAPS } from './race/RaceManager';
+import { DRIFT_TRIAL_TIME, RaceManager } from './race/RaceManager';
 import { Traffic } from './race/Traffic';
 import { Hud } from './ui/Hud';
 import { Menus, type MenuHost, type ResultsData, type Screen } from './ui/Menus';
@@ -57,6 +57,7 @@ export class Game implements MenuHost {
   private modelKey = '';
   private holdRace = false;
   private raceCtx: RaceCtx = { type: 'free' };
+  private slip: { car: CarId; stake: number } | null = null;
   private wreckCount = 0;
   private slowT = 0;
   private timeScale = 1;
@@ -124,13 +125,15 @@ export class Game implements MenuHost {
       skid: (x, z, h) => this.world?.skids.add(x, z, h),
       spark: (x, z, vx, vz, n) => {
         const p = this.world; if (!p) return;
-        const c = p.preset.fxColor;
+        const tierCols = [p.preset.fxColor, 0x4aa8ff, 0xff9a2a, 0xc45cff];
+        const c = tierCols[this.player.driftTier] ?? p.preset.fxColor;
         const dust = p.preset.surface !== 'asphalt' || this.player.offroad;
         if (!dust && Math.random() < 0.5) p.particles.emit(x + (Math.random() - 0.5) * 0.8, 0.25, z + (Math.random() - 0.5) * 0.8, -vx * 0.05, 1.1 + Math.random() * 0.8, -vz * 0.05, 0xc9ccd8, 2.7, 0.95, -0.5);
         for (let i = 0; i < n; i++) {
           p.particles.emit(x + (Math.random() - 0.5), 0.2, z + (Math.random() - 0.5), -vx * 0.15 + (Math.random() - 0.5) * 3, dust ? 1.2 + Math.random() * 1.5 : 1 + Math.random() * 2.5, -vz * 0.15 + (Math.random() - 0.5) * 3, dust ? (p.preset.surface === 'snow' ? 0xffffff : 0xcaa27a) : c, dust ? 1.5 : 1.1, dust ? 0.6 : 0.45, dust ? -0.5 : 7);
         }
       },
+      smoke: (x, y, z) => { this.world?.particles.emit(x + (Math.random() - 0.5) * 0.6, y, z + (Math.random() - 0.5) * 0.6, (Math.random() - 0.5) * 0.8, 2.2, (Math.random() - 0.5) * 0.8, 0x4a4d57, 2.6, 1.2, -0.6); },
       flame: (x, y, z, vx, vz) => {
         const p = this.world; if (!p) return;
         p.particles.emit(x, y, z, vx + (Math.random() - 0.5), 0.4, vz + (Math.random() - 0.5), Math.random() < 0.5 ? 0xff8a1f : 0x5fd2ff, 1.5, 0.25);
@@ -188,9 +191,9 @@ export class Game implements MenuHost {
 
   private wirePlayerEvents(): void {
     this.player.setEvents({
-      onWall: (s) => { this.rig.shake(Math.min(0.9, s * 0.05)); this.sfx.wall(s); },
+      onWall: (s) => { this.rig.shake(Math.min(0.9, s * 0.05)); this.sfx.wall(s); this.race?.hurtCargo(s * 0.012); },
       onLand: (dist) => {
-        this.sfx.land(); this.rig.shake(0.25);
+        this.sfx.land(); this.rig.shake(0.25); this.race?.hurtCargo(0.03);
         if (dist >= 12) {
           const bonus = 20 + Math.round(dist);
           this.jumpBonus += bonus;
@@ -198,6 +201,9 @@ export class Game implements MenuHost {
         }
       },
       onPad: () => { this.sfx.pad(); this.rig.shake(0.2); this.hud.toast(this.i18n.t('ui.boost'), 'cyan', 900); },
+      onDriftScore: (pts, mult) => { if (mult > 1) this.hud.toast(this.i18n.t('ui.chainUp', { m: mult.toFixed(1) }) + ` · +${pts}`, 'gold', 1100); },
+      onDamage: (lvl) => { this.hud.toast(this.i18n.t(lvl >= 2 ? 'ui.critical' : 'ui.damaged'), lvl >= 2 ? 'gold' : '', 2200); this.rig.shake(0.3); },
+      onMiniTurbo: (tier) => { this.sfx.pad(); this.rig.shake(0.12); this.hud.toast(this.i18n.t('ui.miniTurbo', { t: '▲'.repeat(tier) }), tier === 3 ? 'cyan' : '', 900); },
       onPerfectDrift: (pts) => { this.sfx.perfect(); this.hud.center(`${this.i18n.t('ui.perfectDrift')} +${pts}`, 1.3, 'perfect'); },
     });
   }
@@ -368,16 +374,29 @@ export class Game implements MenuHost {
     if (!this.world || this.world.preset.id !== biome || this.world.level !== this.levelFor(biome)) this.loadWorld(biome);
     const world = this.world!;
     this.refreshCar();
+    this.player.damage = this.save.data.damage;
     const lv = world.level;
     const diff = DIFFICULTY[this.save.data.settings.difficulty];
     const dailyMods = ctx.type === 'daily' ? ctx.ch.mods : null;
     const adj = diff.skill + (dailyMods?.skillAdd ?? 0);
+    const trio = [(0.78 + (lv - 1) * 0.014) * adj, (0.84 + (lv - 1) * 0.014) * adj, (0.9 + (lv - 1) * 0.014) * adj];
     const skills: Record<RaceMode, number[]> = {
       time_attack: [],
       duel: [(0.85 + (lv - 1) * 0.014) * adj],
-      circuit: [(0.78 + (lv - 1) * 0.014) * adj, (0.84 + (lv - 1) * 0.014) * adj, (0.9 + (lv - 1) * 0.014) * adj],
+      circuit: trio,
+      elimination: trio,
+      drift_trial: [], speed_run: [], delivery: [],
+      pink_slip: [(0.95 + (lv - 1) * 0.014) * adj],
       boss: [1.1 * adj],
     };
+    this.slip = null;
+    if (mode === 'pink_slip') {
+      const prize = pinkSlipPrize(this.save.data);
+      if (!prize || this.save.data.credits < prize.stake) { this.menus.show('race'); return; }
+      this.slip = prize;
+      this.save.data.credits -= prize.stake;
+      this.save.save();
+    }
     const champ = ctx.type === 'champ' ? champById(ctx.id) : null;
     this.wreckCount = 0; this.slowT = 0; this.timeScale = 1;
     world.skids.clear();
@@ -390,9 +409,20 @@ export class Game implements MenuHost {
       onGo: () => { this.hud.center(this.i18n.t('ui.go'), 0.8, 'go'); this.sfx.beep(true); },
       onLap: (lap, lapTime, best) => {
         this.sfx.lap();
-        this.hud.toast(`${this.i18n.t('ui.lap')} ${lap}/${TOTAL_LAPS} · ${fmt(lapTime)}${best ? ' ★' : ''}`, best ? 'gold' : '');
+        this.hud.toast(`${this.i18n.t('ui.lap')} ${lap}/${this.race?.laps ?? 3} · ${fmt(lapTime)}${best ? ' ★' : ''}`, best ? 'gold' : '');
       },
       onFinish: (rank, time) => this.onFinish(rank, time),
+      onEliminated: (rv) => {
+        this.sfx.wall(8);
+        if (rv.isPlayer) this.hud.center(this.i18n.t('ui.youEliminated'), 1.6, 'crash');
+        else this.hud.toast(this.i18n.t('ui.eliminated', { name: rv.name }), 'gold', 1800);
+      },
+      onFail: (reason) => {
+        this.rig.shake(1.2); this.sfx.wall(30);
+        this.hud.center(this.i18n.t(reason === 'bomb' ? 'ui.bombBlew' : 'ui.cargoLost'), 1.8, 'crash');
+        const p = this.player.position;
+        for (let i = 0; i < 60; i++) world.particles.emit(p.x, 1, p.z, (Math.random() - 0.5) * 22, 2 + Math.random() * 12, (Math.random() - 0.5) * 22, i % 2 ? 0xff7a1a : 0xffe08a, 1.6, 0.9, 12);
+      },
       onCollide: (s, bumper) => { this.rig.shake(Math.min(0.5, s * 0.04)); this.sfx.wall(s * 0.6); if (bumper) this.hud.toast('💥', 'cyan', 600); },
       onCrash: (s) => {
         this.rig.shake(1.0);
@@ -409,8 +439,10 @@ export class Game implements MenuHost {
         for (let i = 0; i < 6; i++) world.particles.emit(x, 0.4, z, (Math.random() - 0.5) * 6, 1 + Math.random() * 3, (Math.random() - 0.5) * 6, kind === 1 ? 0xff8a3a : kind === 3 ? 0x7fc8ff : 0xffffff, 0.9, 0.5, 12);
       },
     }, mode === 'time_attack' ? (this.save.data.ghosts[biome] ?? null) : null, skills[mode], this.scene,
-    world.preset.traffic.cars > 0 || world.intersections.length > 0 ? new Traffic(world, this.scene, world.intersections, { countMul: diff.traffic * (dailyMods?.trafficMul ?? 1), oncoming: dailyMods?.oncoming ?? null }) : null, world.props, champ ? [...champ.rivals] : null);
+    world.preset.traffic.cars > 0 || world.intersections.length > 0 ? new Traffic(world, this.scene, world.intersections, { countMul: diff.traffic * (dailyMods?.trafficMul ?? 1) * (mode === 'speed_run' ? 0.4 : 1), oncoming: mode === 'speed_run' ? 0 : dailyMods?.oncoming ?? null }) : null, world.props, champ ? [...champ.rivals] : null, this.slip ? CARS[this.slip.car].shape : null);
     this.race.ghost?.model.applyLoadout({});
+    const rivals = this.race.racers.filter((x) => x.ai);
+    if (rivals.length > 1 || mode === 'duel') this.hud.toast(`${this.i18n.t('ui.rivalsAre')}: ` + rivals.map((x) => `${x.name} (${this.i18n.t('ui.style_' + x.ai!.style)})`).join(' · '), '', 3800);
     this.state = 'race';
     this.updateMusic();
     this.menus.show('none');
@@ -431,6 +463,7 @@ export class Game implements MenuHost {
   retry(): void { this.launch(this.lastBiome, this.lastMode, this.raceCtx); }
 
   quit(): void {
+    if (this.race && this.state !== 'menu' && this.player) this.save.data.damage = this.player.damage;
     this.race?.dispose();
     this.race = null;
     this.state = 'menu';
@@ -457,12 +490,14 @@ export class Game implements MenuHost {
       coins: this.coinsCollected, jumpBonus: this.jumpBonus,
       nearMisses: r.nearMisses, smashes: this.smashCount,
       difficulty: d.settings.difficulty, wrecks: this.wreckCount, jumps: this.player.jumps,
+      score: this.player.driftScore, integrity: r.cargo, failed: r.failed, stake: this.slip?.stake, prizeCar: this.slip?.car ?? null,
     };
-    const prevBest = d.bestTimes[`${biome}:${mode}`];
+    const prevBest = mode === 'drift_trial' ? d.bestScores[`${biome}:${mode}`] : d.bestTimes[`${biome}:${mode}`];
+    d.damage = this.player.damage;
     const payout = computePayout(d, stats);
     applyPayout(d, stats, payout);
     recordStats(d, stats, payout.credits);
-    const newBest = (mode === 'time_attack' || rank === 1) && (prevBest === undefined || time < prevBest);
+    const newBest = mode === 'drift_trial' ? this.player.driftScore > (prevBest ?? 0) : (mode === 'time_attack' || (rank === 1 && !r.failed)) && (prevBest === undefined || time < prevBest);
     if (r.bestLapGhost) {
       const old = d.ghosts[biome];
       if (!old || r.bestLapGhost.time < old.time) d.ghosts[biome] = r.bestLapGhost;
@@ -485,6 +520,7 @@ export class Game implements MenuHost {
     this.pendingResults = {
       biome, mode, position: rank, total: r.racers.length, time, bestLap: p.bestLap, payout, newBest,
       champ, daily, dailyAttempt: ctx.type === 'daily', achievements, replayAvailable: r.replay.samples.length > 30,
+      failed: r.failed, score: mode === 'drift_trial' ? this.player.driftScore : undefined, medal: payout.medal, slip: this.slip ? { won: rank === 1, car: this.slip.car, stake: this.slip.stake } : undefined,
     };
   }
   private pendingResults: ResultsData | null = null;
@@ -655,16 +691,24 @@ export class Game implements MenuHost {
     this.wrongWayT = along < -4 && race.phase === 'racing' ? this.wrongWayT + dt : 0;
     if (this.wrongWayT > 1 && this.wrongWayCool <= 0) { this.wrongWayCool = 3; this.hud.toast(this.i18n.t('ui.wrongWay'), 'gold', 1600); }
     const me = race.player;
-    const lapNo = Math.max(1, Math.min(TOTAL_LAPS, p.lap + 1));
+    const lapNo = Math.max(1, Math.min(race.laps, p.lap + 1));
+    const t = (k: string, v?: Record<string, string | number>) => this.i18n.t(k, v);
+    let extra: { label: string; frac: number; kind: string } | null = null;
+    let extra2: string | null = null;
+    if (race.mode === 'drift_trial') { const left = Math.max(0, DRIFT_TRIAL_TIME - race.time); extra = { label: `${t('ui.timeLeft')} ${Math.ceil(left)}s`, frac: left / DRIFT_TRIAL_TIME, kind: left < 15 ? 'warn' : '' }; extra2 = `${t('ui.scoreL')} ${Math.round(p.driftScore)}`; }
+    else if (race.mode === 'speed_run') { const thr = race.bombSpeed(); extra = { label: t('ui.bombLabel', { v: Math.round(thr * 3.6) }), frac: race.bomb, kind: race.bomb < 0.35 ? 'warn' : 'good' }; }
+    else if (race.mode === 'delivery') extra = { label: t('ui.cargoLabel', { p: Math.round(race.cargo * 100) }), frac: race.cargo, kind: race.cargo < 0.4 ? 'warn' : 'gold' };
+    else if (race.mode === 'elimination') extra2 = t('ui.elimLeft', { n: race.racers.filter((x) => !x.eliminated).length });
     this.hud.update({
       speedKmh: p.speed * 3.6, nitro: p.nitro, nitroActive: p.nitroActive || p.boostTimer > 0,
-      lap: lapNo, totalLaps: TOTAL_LAPS, pos: me.rank || 1, total: race.racers.length,
+      lap: lapNo, totalLaps: race.laps, extra, extra2, pos: me.rank || 1, total: race.racers.length,
       time: race.time,
       lapTime: 0,
       bestLap: Math.min(me.bestLap, this.lapBestFromSave(this.lastBiome)),
       driftPoints: p.driftPoints, driftActive: p.drifting,
       driftZone: world.track.driftZones.some(([a, b]) => p.tq.s / world.track.length >= a && p.tq.s / world.track.length <= b),
       coins: this.coinsCollected, offroad: p.offroad && race.phase === 'racing',
+      chain: p.chain, mult: p.chainMultiplier, chainActive: p.chainT > 0, tier: p.driftTier, draft: p.draft, damage: p.damage,
     }, dt);
     this.hud.drawMinimap(dt, race.racers.map((r) => ({ x: r.car.position.x, z: r.car.position.z, player: r.isPlayer })));
   }

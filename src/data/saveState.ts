@@ -51,6 +51,8 @@ export interface SaveData {
   /** `${biome}:${mode}` -> best total race time in seconds. */
   bestTimes: Record<string, number>;
   bestLaps: Record<string, number>;
+  /** Drift-trial best scores per `${biome}:drift_trial`. */
+  bestScores: Record<string, number>;
   ghosts: Partial<Record<BiomeId, GhostData>>;
   bossesBeaten: BiomeId[];
   selectedBiome: BiomeId;
@@ -68,6 +70,8 @@ export interface SaveData {
   lastDailyDate: string;
   stats: Stats;
   achievements: string[];
+  /** Persistent car damage 0..1 (repair in the garage). */
+  damage: number;
 }
 
 const KEY = 'hd_save_v1';
@@ -87,6 +91,7 @@ function fresh(): SaveData {
     locations,
     bestTimes: {},
     bestLaps: {},
+    bestScores: {},
     ghosts: {},
     bossesBeaten: [],
     selectedBiome: 'neon_street',
@@ -104,6 +109,7 @@ function fresh(): SaveData {
     lastDailyDate: '',
     stats: { races: 0, wins: 0, nearMisses: 0, perfectDrifts: 0, smashes: 0, wrecks: 0, jumps: 0, coins: 0, dailies: 0, champsWon: 0, earned: 0 },
     achievements: [],
+    damage: 0,
   };
 }
 

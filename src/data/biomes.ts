@@ -55,6 +55,8 @@ export interface BiomePreset {
   weather: 'none' | 'snow' | 'dust' | 'rain';
   /** Civilian traffic: slow lane cars, cross traffic at signalled junctions. */
   traffic: { cars: number; cross: number; /** share of lane cars driving the opposite way (0..1) */ oncoming: number };
+  /** Bomb-run speed limits (m/s) on laps 1..3, set just under what a clean run holds. */
+  bombSpeeds: [number, number, number];
   /** Bloom strength on emissive elements. */
   bloom: number;
   /** Which biome must be Lv.2+ to unlock this one. */
@@ -102,6 +104,7 @@ export const BIOME_PRESETS: Record<BiomeId, BiomePreset> = {
     parTime: 235,
     weather: 'rain',
     traffic: { cars: 11, cross: 3, oncoming: 0.4 },
+    bombSpeeds: [11, 13, 14.5],
     bloom: 0.85,
     unlockedBy: null,
   },
@@ -138,6 +141,7 @@ export const BIOME_PRESETS: Record<BiomeId, BiomePreset> = {
     parTime: 215,
     weather: 'none',
     traffic: { cars: 8, cross: 3, oncoming: 0.35 },
+    bombSpeeds: [13, 15, 16.5],
     bloom: 0.5,
     unlockedBy: 'neon_street',
   },
@@ -174,6 +178,7 @@ export const BIOME_PRESETS: Record<BiomeId, BiomePreset> = {
     parTime: 220,
     weather: 'none',
     traffic: { cars: 12, cross: 3, oncoming: 0.4 },
+    bombSpeeds: [11, 13, 14.5],
     bloom: 0.22,
     unlockedBy: 'harbor_docks',
   },
@@ -207,6 +212,7 @@ export const BIOME_PRESETS: Record<BiomeId, BiomePreset> = {
     parTime: 165,
     weather: 'dust',
     traffic: { cars: 0, cross: 0, oncoming: 0 },
+    bombSpeeds: [30, 34, 38],
     bloom: 0.35,
     unlockedBy: 'neon_street',
   },
@@ -240,6 +246,7 @@ export const BIOME_PRESETS: Record<BiomeId, BiomePreset> = {
     parTime: 205,
     weather: 'none',
     traffic: { cars: 5, cross: 0, oncoming: 0 },
+    bombSpeeds: [36, 40, 43],
     bloom: 0.45,
     unlockedBy: 'red_canyon',
   },
@@ -273,6 +280,7 @@ export const BIOME_PRESETS: Record<BiomeId, BiomePreset> = {
     parTime: 165,
     weather: 'snow',
     traffic: { cars: 0, cross: 0, oncoming: 0 },
+    bombSpeeds: [20, 23, 26],
     bloom: 0.3,
     unlockedBy: 'coast_highway',
   },

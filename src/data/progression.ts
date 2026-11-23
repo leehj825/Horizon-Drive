@@ -6,7 +6,7 @@ import { EQUIPMENT, modsFor, type EquipmentId } from './equipment';
 import type { Difficulty, SaveData } from './saveState';
 import { MAX_LOCATION_LEVEL, MAX_UPGRADE, locationCost, payoutMultiplier, tunedStats, upgradeCost, type UpgradeId } from './upgrades';
 
-export type RaceMode = 'time_attack' | 'duel' | 'circuit' | 'boss';
+export type RaceMode = 'time_attack' | 'duel' | 'circuit' | 'elimination' | 'drift_trial' | 'speed_run' | 'delivery' | 'pink_slip' | 'boss';
 
 export function isBiomeUnlocked(save: SaveData, id: BiomeId): boolean {
   const gate = BIOME_PRESETS[id].unlockedBy;
@@ -15,6 +15,7 @@ export function isBiomeUnlocked(save: SaveData, id: BiomeId): boolean {
 
 export function modeAvailable(save: SaveData, biome: BiomeId, mode: RaceMode): boolean {
   if (mode === 'boss') return save.locations[biome] >= MAX_LOCATION_LEVEL;
+  if (mode === 'pink_slip') return pinkSlipPrize(save) !== null;
   return true;
 }
 
@@ -65,7 +66,24 @@ export const DIFFICULTY: Record<Difficulty, { skill: number; traffic: number; pa
   hard: { skill: 1.07, traffic: 1.3, pay: 1.25 },
 };
 
+/** Drift trial medals: bronze, silver, gold score. */
+export const DRIFT_MEDALS = [800, 2000, 4000];
+export function driftMedal(score: number): number { return DRIFT_MEDALS.filter((m) => score >= m).length; }
+
+/** Pink-slip duel: the first car you do not own is the prize; you stake 30% of its price. */
+export function pinkSlipPrize(save: SaveData): { car: CarId; stake: number } | null {
+  for (const id of ['hatch', 'muscle', 'hyper'] as CarId[]) if (!save.carsOwned.includes(id)) return { car: id, stake: Math.round(CARS[id].cost * 0.3) };
+  return null;
+}
+
 export interface RaceStats {
+  score?: number;
+  /** Delivery cargo integrity 0..1. */
+  integrity?: number;
+  /** Bomb exploded / cargo destroyed. */
+  failed?: boolean;
+  stake?: number;
+  prizeCar?: CarId | null;
   /** Settings difficulty (defaults to normal). */
   difficulty?: Difficulty;
   wrecks?: number;
@@ -91,10 +109,16 @@ export interface Payout {
   techParts: number;
   beatPar: boolean;
   firstBoss: boolean;
+  medal?: number;
+  prizeCar?: CarId | null;
+  stakeBack?: number;
 }
 
 const POSITION_PAY: Record<RaceMode, number[]> = {
   time_attack: [],
+  elimination: [600, 360, 200, 90],
+  drift_trial: [], speed_run: [], delivery: [],
+  pink_slip: [750, 0],
   duel: [450, 120],
   circuit: [550, 340, 190, 90],
   boss: [900, 150],
@@ -106,13 +130,23 @@ export function computePayout(save: SaveData, r: RaceStats): Payout {
   const level = save.locations[r.biome];
   const lines: { key: string; value: number }[] = [];
   let beatPar = false;
+  let medal: number | undefined;
   if (r.mode === 'time_attack') {
     beatPar = r.time <= preset.parTime;
     lines.push({ key: beatPar ? 'payParBeat' : 'payFinish', value: beatPar ? 350 : 140 });
+  } else if (r.mode === 'drift_trial') {
+    medal = driftMedal(r.score ?? 0);
+    lines.push({ key: 'payScore', value: Math.floor(Math.min(r.score ?? 0, 30000) / 8) });
+    if (medal) lines.push({ key: 'payMedal', value: [0, 300, 600, 1000][medal] });
+  } else if (r.mode === 'speed_run') {
+    lines.push({ key: r.failed ? 'payFinish' : 'payBomb', value: r.failed ? 60 : 550 });
+  } else if (r.mode === 'delivery') {
+    lines.push({ key: r.failed ? 'payFinish' : 'payCargo', value: r.failed ? 40 : Math.round(600 * (r.integrity ?? 1)) });
+    if (!r.failed && r.time <= preset.parTime * 0.62) lines.push({ key: 'payParBeat', value: 200 });
   } else {
     lines.push({ key: 'payPlace', value: POSITION_PAY[r.mode][r.position - 1] ?? 60 });
   }
-  if (r.driftScore > 0) lines.push({ key: 'payDrift', value: Math.floor(r.driftScore / 12) });
+  if (r.driftScore > 0 && r.mode !== 'drift_trial') lines.push({ key: 'payDrift', value: Math.floor(r.driftScore / 12) });
   if (r.perfectDrifts > 0) lines.push({ key: 'payPerfect', value: r.perfectDrifts * 15 });
   if (r.coins > 0) lines.push({ key: 'payCoins', value: r.coins * 5 });
   if (r.jumpBonus > 0) lines.push({ key: 'payJumps', value: r.jumpBonus });
@@ -124,20 +158,33 @@ export function computePayout(save: SaveData, r: RaceStats): Payout {
   let techParts = 0;
   let firstBoss = false;
   const won = r.position === 1;
+  let prizeCar: CarId | null = null;
+  let stakeBack = 0;
   if (r.mode === 'time_attack') techParts = beatPar ? 1 : 0;
-  else if (r.mode === 'boss') {
+  else if (r.mode === 'drift_trial') techParts = medal === 3 ? 2 : medal === 2 ? 1 : 0;
+  else if (r.mode === 'speed_run') techParts = r.failed ? 0 : 1;
+  else if (r.mode === 'delivery') techParts = !r.failed && (r.integrity ?? 0) >= 0.9 ? 1 : 0;
+  else if (r.mode === 'pink_slip') {
+    if (won) { techParts = 1; prizeCar = r.prizeCar ?? null; stakeBack = (r.stake ?? 0) * 2; }
+  } else if (r.mode === 'boss') {
     if (won) {
       techParts = 3;
       if (!save.bossesBeaten.includes(r.biome)) { firstBoss = true; credits += 2000; techParts += 4; }
     }
   } else if (won) techParts = 1;
-  return { lines, multiplier, credits, techParts, beatPar, firstBoss };
+  return { lines, multiplier, credits, techParts, beatPar, firstBoss, medal, prizeCar, stakeBack };
 }
 
 export function applyPayout(save: SaveData, r: RaceStats, p: Payout): void {
   save.credits += p.credits;
   save.techParts += p.techParts;
   const key = `${r.biome}:${r.mode}`;
+  if (p.stakeBack) save.credits += p.stakeBack;
+  if (p.prizeCar && !save.carsOwned.includes(p.prizeCar)) save.carsOwned.push(p.prizeCar);
+  if (r.mode === 'drift_trial') {
+    if ((r.score ?? 0) > (save.bestScores[key] ?? 0)) save.bestScores[key] = r.score ?? 0;
+    return;
+  }
   if (r.mode !== 'time_attack' && r.position !== 1) return;
   if (!(key in save.bestTimes) || r.time < save.bestTimes[key]) save.bestTimes[key] = r.time;
   if (r.mode === 'boss' && r.position === 1 && !save.bossesBeaten.includes(r.biome)) save.bossesBeaten.push(r.biome);
@@ -167,7 +214,7 @@ export function carSetup(save: SaveData) {
 export function recordStats(save: SaveData, r: RaceStats, creditsEarned: number): void {
   const st = save.stats;
   st.races++;
-  if (r.position === 1 && r.mode !== 'time_attack') st.wins++;
+  if (r.position === 1 && r.mode !== 'time_attack' && r.mode !== 'drift_trial') st.wins++;
   else if (r.mode === 'time_attack' && r.time <= BIOME_PRESETS[r.biome].parTime) st.wins++;
   st.nearMisses += r.nearMisses;
   st.perfectDrifts += r.perfectDrifts;
@@ -181,4 +228,18 @@ export function recordStats(save: SaveData, r: RaceStats, creditsEarned: number)
 /** Today's daily challenge, picked among the biomes this player has unlocked. */
 export function todaysChallenge(save: SaveData): DailyChallenge {
   return dailyChallenge(todayStr(), BIOME_ORDER.filter((b) => isBiomeUnlocked(save, b)));
+}
+
+/** Cost to bring the car back to 100%. */
+export function repairCost(save: SaveData): number {
+  return Math.round(save.damage * 900);
+}
+
+export function repairCar(save: SaveData): BuyResult {
+  if (save.damage <= 0.005) return 'owned';
+  const cost = repairCost(save);
+  if (save.credits < cost) return 'poor';
+  save.credits -= cost;
+  save.damage = 0;
+  return 'ok';
 }

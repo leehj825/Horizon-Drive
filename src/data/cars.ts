@@ -35,5 +35,6 @@ export function applyCar(stats: VehicleStats, car: CarDef): VehicleStats {
     nitroRate: stats.nitroRate * car.mult.nitroRate,
     wallKeep: Math.min(0.92, stats.wallKeep + car.tough),
     landSoak: stats.landSoak,
+    armor: stats.armor * (1 - car.tough),
   };
 }

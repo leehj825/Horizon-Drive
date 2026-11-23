@@ -19,6 +19,8 @@ export interface VehicleStats {
   wallKeep: number;
   /** Fraction of the landing slowdown that is absorbed. */
   landSoak: number;
+  /** Damage taken multiplier (1 = normal). */
+  armor: number;
 }
 
 export const BASE_STATS: VehicleStats = {
@@ -28,6 +30,7 @@ export const BASE_STATS: VehicleStats = {
   nitroRate: 1,
   wallKeep: 0.62,
   landSoak: 0,
+  armor: 1,
 };
 
 export type UpgradeLevels = Record<UpgradeId, number>;
@@ -40,6 +43,7 @@ export function tunedStats(up: UpgradeLevels): VehicleStats {
     nitroRate: 1 + 0.12 * up.turbo,
     wallKeep: Math.min(0.9, BASE_STATS.wallKeep + 0.05 * up.chassis),
     landSoak: Math.min(0.8, 0.15 * up.chassis),
+    armor: Math.max(0.5, 1 - 0.08 * up.chassis),
   };
 }
 

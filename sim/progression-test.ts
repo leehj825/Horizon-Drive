@@ -7,6 +7,7 @@ import { BASE_STATS, featuresFor, locationCost, payoutMultiplier, tunedStats } f
 import { ACHIEVEMENTS, checkAchievements } from '../src/data/achievements';
 import { CHAMPIONSHIPS, claimDaily, dailyChallenge, recordChampRound, todayStr } from '../src/data/challenges';
 import { DIFFICULTY, recordStats } from '../src/data/progression';
+import { repairCar, repairCost } from '../src/data/progression';
 import { I18n } from '../src/i18n/i18n';
 import { TRANSLATIONS } from '../src/i18n/translations';
 
@@ -126,6 +127,41 @@ recordStats(as, { ...r, nearMisses: 0, smashes: 0 }, 100);
 assert.deepEqual(checkAchievements(as), ['firstWin']);
 assert.deepEqual(checkAchievements(as), []);
 assert.equal(as.credits, 600 + ACHIEVEMENTS.find((a) => a.id === 'firstWin')!.reward);
+
+// new modes
+import { DRIFT_MEDALS, driftMedal, pinkSlipPrize } from '../src/data/progression';
+const nm = new SaveState().data;
+const base = { biome: 'neon_street' as const, position: 1, time: 100, driftScore: 0, perfectDrifts: 0, coins: 0, jumpBonus: 0, nearMisses: 0, smashes: 0 };
+const dt1 = computePayout(nm, { ...base, mode: 'drift_trial', score: 2500 });
+assert.equal(dt1.medal, 2); assert.equal(dt1.techParts, 1);
+assert.equal(driftMedal(DRIFT_MEDALS[2]), 3);
+const bomb = computePayout(nm, { ...base, mode: 'speed_run', failed: false });
+assert.equal(bomb.lines[0].key, 'payBomb'); assert.equal(bomb.techParts, 1);
+assert.equal(computePayout(nm, { ...base, mode: 'speed_run', position: 4, failed: true }).techParts, 0);
+const del = computePayout(nm, { ...base, mode: 'delivery', integrity: 0.5, time: 999 });
+assert.equal(del.lines[0].value, 300);
+const slip = pinkSlipPrize(nm)!;
+assert.equal(slip.car, 'hatch'); assert.equal(slip.stake, 420);
+nm.credits = 1000;
+const pw = computePayout(nm, { ...base, mode: 'pink_slip', stake: slip.stake, prizeCar: slip.car });
+applyPayout(nm, { ...base, mode: 'pink_slip', stake: slip.stake, prizeCar: slip.car }, pw);
+assert.ok(nm.carsOwned.includes('hatch'));
+assert.ok(nm.credits >= 1000 + slip.stake * 2);
+assert.equal(pinkSlipPrize(nm)!.car, 'muscle');
+const el = computePayout(nm, { ...base, mode: 'elimination', position: 2 });
+assert.equal(el.lines[0].value, 360);
+
+// damage and repair
+const dm = new SaveState().data;
+assert.equal(repairCar(dm), 'owned');
+dm.damage = 0.5;
+assert.equal(repairCost(dm), 450);
+dm.credits = 100;
+assert.equal(repairCar(dm), 'poor');
+dm.credits = 1000;
+assert.equal(repairCar(dm), 'ok');
+assert.equal(dm.damage, 0);
+assert.equal(dm.credits, 550);
 
 // i18n: EN/KO parity and fallback
 function keys(o: unknown, pre = ''): string[] {

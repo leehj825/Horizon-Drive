@@ -17,6 +17,15 @@ export interface HudData {
   driftZone: boolean;
   coins: number;
   offroad: boolean;
+  chain: number;
+  mult: number;
+  chainActive: boolean;
+  tier: number;
+  draft: number;
+  /** Mode-specific bar (bomb, cargo, damage...): label, 0..1 fill, kind */
+  extra?: { label: string; frac: number; kind: string } | null;
+  extra2?: string | null;
+  damage: number;
 }
 
 export function fmtTime(t: number): string {
@@ -55,14 +64,18 @@ export class Hud {
       <div class="hud-bl">
         <div class="speed"><b id="h-speed">0</b><span class="k" data-k="kmhL"></span></div>
         <div class="nitro"><div class="nitro-fill" id="h-nitro"></div><span class="nitro-label k" data-k="nitroL"></span></div>
+        <div class="dmg" id="h-dmgwrap"><i id="h-dmg"></i></div>
         <div class="coins">● <b id="h-coins">0</b></div>
       </div>
       <div class="hud-drift" id="h-drift"></div>
+      <div class="hud-draft" id="h-draft"></div>
+      <div class="hud-extra" id="h-extra"><span id="h-extra-l"></span><div><i id="h-extra-f"></i></div></div>
+      <div class="hud-extra2" id="h-extra2"></div>
       <div class="hud-center" id="h-center"></div>
       <div class="hud-toasts" id="h-toasts"></div>
       <div class="hud-off" id="h-off"></div>`;
     parent.appendChild(this.root);
-    for (const id of ['h-lap', 'h-pos', 'h-time', 'h-best', 'h-speed', 'h-nitro', 'h-coins', 'h-drift', 'h-center', 'h-toasts', 'h-off']) this.el[id] = this.root.querySelector('#' + id)!;
+    for (const id of ['h-dmgwrap', 'h-dmg', 'h-draft', 'h-extra', 'h-extra-l', 'h-extra-f', 'h-extra2', 'h-lap', 'h-pos', 'h-time', 'h-best', 'h-speed', 'h-nitro', 'h-coins', 'h-drift', 'h-center', 'h-toasts', 'h-off']) this.el[id] = this.root.querySelector('#' + id)!;
     this.mini = this.root.querySelector('#h-mini')!;
     this.mctx = this.mini.getContext('2d')!;
     this.root.querySelector('#h-pause')!.addEventListener('click', onPause);
@@ -93,21 +106,39 @@ export class Hud {
   }
 
   update(d: HudData, dt: number): void {
-    this.set('h-lap', `${Math.min(d.lap, d.totalLaps)}/${d.totalLaps}`);
+    this.set('h-lap', d.totalLaps > 100 ? `${d.lap}` : `${Math.min(d.lap, d.totalLaps)}/${d.totalLaps}`);
     this.set('h-pos', `${d.pos}/${d.total}`);
     this.set('h-time', fmtTime(d.time));
     this.set('h-best', fmtTime(d.bestLap));
     this.set('h-speed', String(Math.round(d.speedKmh)));
     this.set('h-coins', String(d.coins));
+    this.el['h-dmgwrap'].style.display = d.damage > 0.02 ? 'block' : 'none';
+    this.el['h-dmg'].style.width = `${Math.round(d.damage * 100)}%`;
     const nf = this.el['h-nitro'];
     nf.style.width = `${Math.round(d.nitro * 100)}%`;
     nf.classList.toggle('active', d.nitroActive);
     nf.classList.toggle('full', d.nitro > 0.99);
     const dr = this.el['h-drift'];
     if (d.driftActive && d.driftPoints > 20) {
-      dr.textContent = `DRIFT ${Math.round(d.driftPoints)}${d.driftZone ? ' ×2' : ''}`;
-      dr.classList.add('on');
-    } else dr.classList.remove('on');
+      dr.textContent = `DRIFT ${Math.round(d.driftPoints)}${d.driftZone ? ' ×2' : ''}${d.chain > 1 ? ` · ×${d.mult.toFixed(1)}` : ''}${d.tier > 0 ? ' ' + '▲'.repeat(d.tier) : ''}`;
+      dr.className = `hud-drift on t${d.tier}`;
+    } else if (d.chainActive && d.chain > 0) {
+      dr.textContent = `CHAIN ×${d.mult.toFixed(1)}`;
+      dr.className = 'hud-drift on chain';
+    } else dr.className = 'hud-drift';
+    const dft = this.el['h-draft'];
+    dft.textContent = this.i18n.t('ui.slipstream');
+    dft.style.opacity = String(Math.min(1, d.draft * 1.4));
+    const ex = this.el['h-extra'];
+    if (d.extra) {
+      ex.style.display = 'block';
+      this.set('h-extra-l', d.extra.label);
+      this.el['h-extra-f'].style.width = `${Math.round(Math.max(0, Math.min(1, d.extra.frac)) * 100)}%`;
+      ex.className = `hud-extra ${d.extra.kind}`;
+    } else ex.style.display = 'none';
+    const ex2 = this.el['h-extra2'];
+    ex2.textContent = d.extra2 ?? '';
+    ex2.style.display = d.extra2 ? 'block' : 'none';
     this.el['h-off'].classList.toggle('on', d.offroad);
     if (this.centerTimer > 0) {
       this.centerTimer -= dt;

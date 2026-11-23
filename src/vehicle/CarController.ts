@@ -26,13 +26,17 @@ export interface CarEvents {
   onLand?: (distance: number) => void;
   onPad?: () => void;
   onPerfectDrift?: (score: number) => void;
-  onDriftScore?: (points: number) => void;
+  onDriftScore?: (points: number, multiplier: number) => void;
+  onMiniTurbo?: (tier: number) => void;
+  /** Damage crossed a warning threshold (0.5 or 0.8). */
+  onDamage?: (level: number) => void;
 }
 
 export interface CarFx {
   skid: (x: number, z: number, heading: number) => void;
   spark: (x: number, z: number, vx: number, vz: number, n: number) => void;
   flame: (x: number, y: number, z: number, vx: number, vz: number) => void;
+  smoke?: (x: number, y: number, z: number) => void;
 }
 
 const NITRO_BOOST = 1.5;
@@ -74,6 +78,18 @@ export class CarController {
   locked = false;
   wallHits = 0;
   features: TrackFeatures = NO_FEATURES;
+  /** Drift chain: consecutive drifts raise the score multiplier (x1 .. x5). */
+  chain = 0;
+  /** Seconds left to continue the chain with another drift. */
+  chainT = 0;
+  /** Mini-turbo tier the current drift has reached (0..3). */
+  driftTier = 0;
+  /** Slipstream strength 0..1 (set by the race manager). */
+  draft = 0;
+  /** Accumulated damage 0..1: slows the car, pulls it to one side and smokes. */
+  damage = 0;
+  private pullDir = Math.random() < 0.5 ? -1 : 1;
+  private warned = 0;
   /** Free-roaming body (cross traffic): ignores the track surface, walls and lap progress. */
   free = false;
   /** Seconds of reduced steering after a crash. */
@@ -112,6 +128,15 @@ export class CarController {
 
   get speed(): number { return Math.hypot(this.vx, this.vz); }
   get lap(): number { return Math.floor(this.progress / this.track.length); }
+  /** Take damage (scaled by armour). */
+  hurt(amount: number): void {
+    if (this.free || amount <= 0) return;
+    this.damage = Math.min(1, this.damage + amount * this.stats.armor);
+    const lvl = this.damage >= 0.8 ? 2 : this.damage >= 0.5 ? 1 : 0;
+    if (lvl > this.warned) { this.warned = lvl; this.events.onDamage?.(lvl); }
+  }
+
+  get chainMultiplier(): number { return this.chain > 0 ? Math.min(5, 1 + 0.5 * (this.chain - 1)) : 1; }
 
   setEvents(e: CarEvents): void { this.events = e; }
 
@@ -132,7 +157,7 @@ export class CarController {
     this.nitroActive = false;
     this.boostTimer = 0;
     this.driftTime = 0; this.driftPoints = 0; this.driftScore = 0; this.perfectDrifts = 0;
-    this.jumps = 0; this.wallHits = 0;
+    this.jumps = 0; this.wallHits = 0; this.chain = 0; this.chainT = 0; this.draft = 0; this.warned = this.damage >= 0.8 ? 2 : this.damage >= 0.5 ? 1 : 0;
     this.syncModel(0);
   }
 
@@ -187,7 +212,7 @@ export class CarController {
     const boosting = this.boostTimer > 0;
     if (wantsNitro) this.nitro = Math.max(0, this.nitro - (dt * 0.34) / mods.nitroDurationMul);
     else this.nitro = Math.min(1, this.nitro + dt * 0.035 * st.nitroRate);
-    let maxSpeed = st.maxSpeed * speedCap;
+    let maxSpeed = st.maxSpeed * speedCap * (1 + 0.07 * this.draft) * (1 - 0.28 * this.damage);
     if (wantsNitro) maxSpeed *= NITRO_SPEED;
     if (boosting) maxSpeed = Math.max(maxSpeed, st.maxSpeed * 1.32);
 
@@ -199,6 +224,7 @@ export class CarController {
     const dir = vf >= -0.5 ? 1 : -1;
     const steerRate = -steerIn * 2.5 * authority * dir * (hb ? 1.6 : 1) * (grounded ? 1 : 0.25);
     this.heading += steerRate * dt;
+    if (this.damage > 0.15 && throttle > 0 && speedAbs > 10 && grounded) this.heading += this.pullDir * this.damage * 0.1 * dt * Math.min(1, speedAbs / 30);
     fx_ = Math.sin(this.heading); fz_ = Math.cos(this.heading);
     sx = Math.cos(this.heading); sz = -Math.sin(this.heading);
     vf = this.vx * fx_ + this.vz * fz_;
@@ -207,7 +233,7 @@ export class CarController {
     // --- longitudinal ---
     if (grounded) {
       if (throttle > 0) {
-        const boostMul = (wantsNitro ? NITRO_BOOST : 1) * (boosting ? 1.6 : 1);
+        const boostMul = (wantsNitro ? NITRO_BOOST : 1) * (boosting ? 1.6 : 1) * (1 + 0.35 * this.draft);
         if (vf < maxSpeed) vf += st.accel * boostMul * (1 - Math.max(0, vf) / (maxSpeed + 8)) * dt * (0.55 + 0.45 * Math.min(1, gripMul + 0.2));
         else vf -= (vf - maxSpeed) * Math.min(1, dt * 2);
       } else if (throttle < 0) {
@@ -267,6 +293,7 @@ export class CarController {
       } else if (this.offroad && this.speed > 10) {
         fx.spark(this.position.x - fx_ * 1.5, this.position.z - fz_ * 1.5, this.vx, this.vz, 1);
       }
+      if (this.damage > 0.45 && fx.smoke && Math.random() < this.damage * 0.5) fx.smoke(this.position.x + fx_ * 1.3, 1.0, this.position.z + fz_ * 1.3);
       if (wantsNitro || boosting) fx.flame(this.position.x - fx_ * 2.3, this.position.y + 0.55, this.position.z - fz_ * 2.3, -fx_ * 6, -fz_ * 6);
     }
     this.syncModel(dt, ctl);
@@ -293,19 +320,31 @@ export class CarController {
       this.nitro = Math.min(1, this.nitro + dt * 0.16 * this.stats.nitroRate * this.mods.driftNitroMul * zoneMul);
       if (this.offroad) this.driftDirty = true;
     }
+    if (this.drifting) this.driftTier = this.driftTime >= 2.5 ? 3 : this.driftTime >= 1.5 ? 2 : this.driftTime >= 0.8 ? 1 : 0;
+    if (!this.drifting) this.chainT = Math.max(0, this.chainT - dt);
+    if (!this.drifting && this.chainT <= 0) this.chain = 0;
     if (wasDrifting && !this.drifting) {
       const clean = !this.driftDirty && this.driftTime >= 1.1;
-      const pts = Math.round(this.driftPoints * (clean ? 1.5 : 1));
       if (this.driftTime >= 0.5) {
+        if (this.driftDirty) this.chain = 0;
+        else { this.chain = this.chainT > 0 ? this.chain + 1 : 1; this.chainT = 1.7; }
+        const mult = this.chainMultiplier;
+        const pts = Math.round(this.driftPoints * (clean ? 1.5 : 1) * mult);
         this.driftScore += pts;
-        this.events.onDriftScore?.(pts);
+        this.events.onDriftScore?.(pts, mult);
+        if (!this.driftDirty && this.driftTier > 0) {
+          // mini turbo: longer drifts pay out a stronger burst
+          this.boostTimer = Math.max(this.boostTimer, [0, 0.7, 1.2, 1.8][this.driftTier]);
+          this.nitro = Math.min(1, this.nitro + 0.05 * this.driftTier);
+          this.events.onMiniTurbo?.(this.driftTier);
+        }
+        if (clean) {
+          this.perfectDrifts++;
+          this.nitro = Math.min(1, this.nitro + 0.18);
+          this.events.onPerfectDrift?.(pts);
+        }
       }
-      if (clean) {
-        this.perfectDrifts++;
-        this.nitro = Math.min(1, this.nitro + 0.18);
-        this.events.onPerfectDrift?.(pts);
-      }
-      this.driftTime = 0; this.driftPoints = 0; this.driftDirty = false;
+      this.driftTime = 0; this.driftPoints = 0; this.driftDirty = false; this.driftTier = 0;
     }
   }
 
@@ -329,6 +368,7 @@ export class CarController {
       this.vz -= (1 + WALL_BOUNCE) * vn * nz;
       if (impact > 3) {
         const pen = (1 - this.stats.wallKeep) * Math.min(1, impact / 14);
+        this.hurt(impact * 0.0065);
         this.vx *= 1 - pen; this.vz *= 1 - pen;
         if (this.wallContact <= 0) {
           this.wallHits++;
@@ -389,6 +429,7 @@ export class CarController {
         const dist = Math.hypot(this.position.x - this.airStartX, this.position.z - this.airStartZ);
         this.jumps++;
         this.events.onLand?.(dist);
+        if (landSpeed > 10) this.hurt((landSpeed - 10) * 0.004);
         const slow = Math.min(0.28, landSpeed * 0.02) * (1 - this.stats.landSoak);
         this.vx *= 1 - slow; this.vz *= 1 - slow;
       }

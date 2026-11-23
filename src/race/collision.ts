@@ -43,6 +43,7 @@ export function resolveCars(a: CarController, b: CarController): number {
     if (a.mods.bumper) { b.vx += dx * 0.67; b.vz += dz * 0.67; }
     if (b.mods.bumper) { a.vx -= dx * 0.67; a.vz -= dz * 0.67; }
   }
+  if (strongest > 4) { a.hurt(strongest * 0.0045); b.hurt(strongest * 0.0045); }
   if (strongest > 6) { a.stunT = Math.max(a.stunT, Math.min(1.4, strongest * 0.06)); b.stunT = Math.max(b.stunT, Math.min(1.4, strongest * 0.06)); }
   return strongest;
 }

@@ -3,11 +3,12 @@ const { chromium } = require('playwright');
 (async () => {
   const [,, base = 'http://localhost:5199/'] = process.argv;
   const errs = [];
-  for (const spec of [['neon_street', 'circuit', 5], ['harbor_docks', 'duel', 3], ['downtown_day', 'circuit', 4], ['red_canyon', 'duel', 3], ['coast_highway', 'time_attack', 4], ['alpine_pass', 'boss', 5]]) {
+  for (const spec of [['downtown_day', 'speed_run', 3], ['red_canyon', 'speed_run', 3], ['alpine_pass', 'speed_run', 3]]) {
     const browser = await chromium.launch({ args: ['--use-gl=swiftshader', '--enable-webgl', '--ignore-gpu-blocklist', '--no-sandbox'] });
     const page = await browser.newPage({ viewport: { width: 640, height: 360 } });
     page.on('pageerror', (e) => errs.push(spec[0] + ' PAGEERROR: ' + e.message));
     page.on('console', (m) => { if (m.type() === 'error') errs.push(spec[0] + ' ' + m.text()); });
+    await page.addInitScript(() => localStorage.setItem('hd_save_v1', JSON.stringify({ v: 1, tutorialSeen: true, tipShown: true, credits: 5000 })));
     await page.goto(`${base}?autostart=${spec[0]}:${spec[1]}&bot=1&level=${spec[2]}&bloom=0&shadows=0`);
     await page.waitForTimeout(1500);
     const res = await page.evaluate(() => {
@@ -23,7 +24,7 @@ const { chromium } = require('playwright');
       }
       out.phase = g.race.phase; out.time = +g.race.time.toFixed(1);
       out.racers = g.race.racers.map((r) => ({ n: r.name, rank: r.rank, laps: r.car.lap, fin: r.finished, ft: +r.finishTime.toFixed(1), best: +r.bestLap.toFixed(1), wall: r.car.wallHits }));
-      out.pending = !!g.pendingResults;
+      out.pending = !!g.pendingResults; out.failed = g.race.failed; out.cargo = +g.race.cargo.toFixed(2); out.bomb = +g.race.bomb.toFixed(2); out.score = Math.round(g.player.driftScore); out.res = g.pendingResults && { pos: g.pendingResults.position, medal: g.pendingResults.medal, slip: g.pendingResults.slip, cr: g.pendingResults.payout.credits, lines: g.pendingResults.payout.lines.map((l) => l.key + ':' + l.value).join(',') };
       out.traffic = g.race.traffic ? { cars: g.race.traffic.cars.length, wrecked: g.race.traffic.cars.filter((t) => t.wrecked).length } : null;
       out.nearMisses = g.race.nearMisses; out.smashed = g.world.props.smashed;
       // let the results screen appear via the normal tick path

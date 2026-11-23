@@ -193,3 +193,18 @@ input[type=range] { width: 100%; accent-color: var(--cyan); height: 28px; }
 #replay > div { display: flex; gap: 8px; }
 #touch button { transform: scale(var(--touch-scale, 1)); }
 .t-left button { transform-origin: bottom left; } .t-right button { transform-origin: bottom right; }
+
+.hud-drift.t1 { color: #4aa8ff; text-shadow: 0 0 14px rgba(74,168,255,0.8); }
+.hud-drift.t2 { color: #ff9a2a; text-shadow: 0 0 14px rgba(255,154,42,0.8); }
+.hud-drift.t3 { color: #c45cff; text-shadow: 0 0 16px rgba(196,92,255,0.9); }
+.hud-drift.chain { color: var(--gold); text-shadow: 0 0 14px rgba(255,210,74,0.7); }
+.hud-draft { position: absolute; left: 50%; bottom: 31%; transform: translateX(-50%); font-weight: 800; letter-spacing: 0.2em; font-size: 14px; color: #bfe8ff; opacity: 0; text-shadow: 0 0 10px rgba(120,200,255,0.9); }
+.hud-extra { position: absolute; left: 50%; top: 4.5%; transform: translateX(-50%); width: min(300px, 44vw); display: none; text-align: center; font-weight: 800; font-size: 12px; letter-spacing: 0.12em; }
+.hud-extra > div { height: 9px; border-radius: 5px; background: rgba(8,10,22,0.7); border: 1px solid var(--edge); overflow: hidden; margin-top: 3px; }
+.hud-extra i { display: block; height: 100%; background: var(--cyan); transition: width 0.12s; }
+.hud-extra.warn i { background: #ff4f5e; } .hud-extra.good i { background: #7bff9a; } .hud-extra.gold i { background: var(--gold); }
+.hud-extra2 { position: absolute; left: 50%; top: 9.5%; transform: translateX(-50%); font-size: 15px; font-weight: 800; display: none; background: rgba(8,10,22,0.62); border: 1px solid var(--edge); border-radius: 10px; padding: 3px 12px; }
+.dmg { display: none; height: 5px; margin-top: 5px; background: rgba(8,10,22,0.7); border: 1px solid var(--edge); border-radius: 4px; overflow: hidden; }
+.dmg i { display: block; height: 100%; background: linear-gradient(90deg, #ffb347, #ff4f5e); }
+.cond { display: flex; align-items: center; gap: 10px; margin: 4px 0 6px; font-size: 13px; color: var(--dim); flex-wrap: wrap; }
+.cond .bar { flex: 1; min-width: 120px; margin: 0; }
