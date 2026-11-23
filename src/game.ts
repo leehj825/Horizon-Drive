@@ -10,7 +10,7 @@ import { BIOME_PRESETS, type BiomeId } from './data/biomes';
 import { CARS, PAINTS, type CarId } from './data/cars';
 import { checkAchievements } from './data/achievements';
 import { champById, champProgress, claimDaily, recordChampRound, type DailyChallenge } from './data/challenges';
-import { applyPayout, carSetup, computePayout, DIFFICULTY, isBiomeUnlocked, pinkSlipPrize, recordStats, todaysChallenge, type RaceMode } from './data/progression';
+import { applyPayout, awardMedal, carSetup, perkFor, computePayout, DIFFICULTY, isBiomeUnlocked, pinkSlipPrize, recordStats, todaysChallenge, type RaceMode } from './data/progression';
 import { SaveState } from './data/saveState';
 import { I18n } from './i18n/i18n';
 import { Input } from './input/Input';
@@ -21,7 +21,7 @@ import { Hud } from './ui/Hud';
 import { Menus, type MenuHost, type ResultsData, type Screen } from './ui/Menus';
 import { CarController, type CarFx, type ControlState } from './vehicle/CarController';
 import { buildCar, type CarModel } from './vehicle/CarMeshBuilder';
-import { loadBiomeScene, type BiomeWorld, type Quality } from './world/BiomeLoader';
+import { loadBiomeScene, type BiomeWorld, type Quality, type WorldOptions } from './world/BiomeLoader';
 
 const DT = 1 / 120;
 type State = 'menu' | 'race' | 'paused' | 'results' | 'replay';
@@ -165,9 +165,9 @@ export class Game implements MenuHost {
   }
 
   /** (Re)build the scene for a biome at its current Location level. */
-  loadWorld(biome: BiomeId): void {
+  loadWorld(biome: BiomeId, opts: WorldOptions = { perk: perkFor(this.save.data, biome) }): void {
     this.world?.dispose();
-    this.world = loadBiomeScene(this.scene, biome, this.levelFor(biome), this.quality);
+    this.world = loadBiomeScene(this.scene, biome, this.levelFor(biome), this.quality, opts);
     this.rebuildPostFx();
     const { stats, mods } = carSetup(this.save.data);
     this.player = new CarController(this.world.track, stats, mods, this.playerModel, {});
@@ -371,10 +371,13 @@ export class Game implements MenuHost {
     this.race = null;
     this.save.data.selectedBiome = biome;
     this.save.save();
-    if (!this.world || this.world.preset.id !== biome || this.world.level !== this.levelFor(biome)) this.loadWorld(biome);
+    if (!this.world || this.world.preset.id !== biome || this.world.level !== this.levelFor(biome) || (this.world.opts.perk ?? null) !== perkFor(this.save.data, biome)) this.loadWorld(biome);
     const world = this.world!;
     this.refreshCar();
     this.player.damage = this.save.data.damage;
+    const perk = perkFor(this.save.data, biome);
+    if (perk === 'racing') this.player.stats = { ...this.player.stats, nitroRate: this.player.stats.nitroRate * 1.15 };
+    if (perk === 'safety') this.player.stats = { ...this.player.stats, armor: this.player.stats.armor * 0.6 };
     const lv = world.level;
     const diff = DIFFICULTY[this.save.data.settings.difficulty];
     const dailyMods = ctx.type === 'daily' ? ctx.ch.mods : null;
@@ -439,7 +442,7 @@ export class Game implements MenuHost {
         for (let i = 0; i < 6; i++) world.particles.emit(x, 0.4, z, (Math.random() - 0.5) * 6, 1 + Math.random() * 3, (Math.random() - 0.5) * 6, kind === 1 ? 0xff8a3a : kind === 3 ? 0x7fc8ff : 0xffffff, 0.9, 0.5, 12);
       },
     }, mode === 'time_attack' ? (this.save.data.ghosts[biome] ?? null) : null, skills[mode], this.scene,
-    world.preset.traffic.cars > 0 || world.intersections.length > 0 ? new Traffic(world, this.scene, world.intersections, { countMul: diff.traffic * (dailyMods?.trafficMul ?? 1) * (mode === 'speed_run' ? 0.4 : 1), oncoming: mode === 'speed_run' ? 0 : dailyMods?.oncoming ?? null }) : null, world.props, champ ? [...champ.rivals] : null, this.slip ? CARS[this.slip.car].shape : null);
+    world.preset.traffic.cars > 0 || world.intersections.length > 0 ? new Traffic(world, this.scene, world.intersections, { countMul: diff.traffic * (dailyMods?.trafficMul ?? 1) * (mode === 'speed_run' ? 0.4 : 1) * (perk === 'safety' ? 0.7 : 1), oncoming: mode === 'speed_run' ? 0 : dailyMods?.oncoming ?? null }) : null, world.props, champ ? [...champ.rivals] : null, this.slip ? CARS[this.slip.car].shape : null);
     this.race.ghost?.model.applyLoadout({});
     const rivals = this.race.racers.filter((x) => x.ai);
     if (rivals.length > 1 || mode === 'duel') this.hud.toast(`${this.i18n.t('ui.rivalsAre')}: ` + rivals.map((x) => `${x.name} (${this.i18n.t('ui.style_' + x.ai!.style)})`).join(' · '), '', 3800);
@@ -513,6 +516,7 @@ export class Game implements MenuHost {
     } else if (ctx.type === 'daily') {
       daily = claimDaily(d, ctx.ch, rank);
     }
+    const timeMedal = mode === 'time_attack' ? awardMedal(d, biome, time) : undefined;
     const achievements = checkAchievements(d);
     this.save.save();
     this.sfx.finish(rank === 1);
@@ -520,7 +524,7 @@ export class Game implements MenuHost {
     this.pendingResults = {
       biome, mode, position: rank, total: r.racers.length, time, bestLap: p.bestLap, payout, newBest,
       champ, daily, dailyAttempt: ctx.type === 'daily', achievements, replayAvailable: r.replay.samples.length > 30,
-      failed: r.failed, score: mode === 'drift_trial' ? this.player.driftScore : undefined, medal: payout.medal, slip: this.slip ? { won: rank === 1, car: this.slip.car, stake: this.slip.stake } : undefined,
+      timeMedal, failed: r.failed, score: mode === 'drift_trial' ? this.player.driftScore : undefined, medal: payout.medal, slip: this.slip ? { won: rank === 1, car: this.slip.car, stake: this.slip.stake } : undefined,
     };
   }
   private pendingResults: ResultsData | null = null;

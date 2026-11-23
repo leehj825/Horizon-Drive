@@ -40,7 +40,7 @@ export interface BuiltTrack {
 }
 
 /** Builds road, walls, scenery and the Location Lv.1~5 additions for one biome. */
-export function buildTrack(track: Track, preset: BiomePreset, level: number): BuiltTrack {
+export function buildTrack(track: Track, preset: BiomePreset, level: number, opts: { perk?: string | null } = {}): BuiltTrack {
   const group = new THREE.Group();
   const disposables: { dispose(): void }[] = [];
   const mats = <T extends { dispose(): void }>(m: T): T => { disposables.push(m); return m; };
@@ -444,7 +444,8 @@ export function buildTrack(track: Track, preset: BiomePreset, level: number): Bu
   const bonusCoins: { x: number; y: number; z: number }[] = [];
   const padS: number[] = [];
   if (feat.boostPads) {
-    const pads = track.pickStraights(5, Math.max(260, L / 6), [0, L]).filter((s) => !tunnelSkip(s));
+    const racing = opts.perk === 'racing';
+    const pads = track.pickStraights(racing ? 9 : 5, racing ? Math.max(130, L / 11) : Math.max(260, L / 6), [0, L]).filter((s) => !tunnelSkip(s));
     const ct = chevronTexture(preset.id === 'neon_street' ? '#19e6ff' : '#ffe14a'); disposables.push(ct);
     const padMat = mats(dbl(new THREE.MeshStandardMaterial({ map: ct, emissiveMap: ct, emissive: 0xffffff, emissiveIntensity: 0.9, roughness: 0.4 })));
     for (const s of pads) {

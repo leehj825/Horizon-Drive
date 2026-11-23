@@ -3,7 +3,7 @@ import { applyCar, CARS, type CarId } from './cars';
 import { dailyChallenge, todayStr, type DailyChallenge } from './challenges';
 import { BIOME_ORDER } from './biomes';
 import { EQUIPMENT, modsFor, type EquipmentId } from './equipment';
-import type { Difficulty, SaveData } from './saveState';
+import type { Difficulty, Perk, SaveData } from './saveState';
 import { MAX_LOCATION_LEVEL, MAX_UPGRADE, locationCost, payoutMultiplier, tunedStats, upgradeCost, type UpgradeId } from './upgrades';
 
 export type RaceMode = 'time_attack' | 'duel' | 'circuit' | 'elimination' | 'drift_trial' | 'speed_run' | 'delivery' | 'pink_slip' | 'boss';
@@ -153,7 +153,7 @@ export function computePayout(save: SaveData, r: RaceStats): Payout {
   if (r.nearMisses > 0) lines.push({ key: 'payNearMiss', value: Math.min(25, r.nearMisses) * 10 });
   if (r.smashes > 0) lines.push({ key: 'paySmash', value: Math.min(40, r.smashes) * 2 });
   const base = lines.reduce((s, l) => s + l.value, 0);
-  const multiplier = payoutMultiplier(level) * DIFFICULTY[r.difficulty ?? 'normal'].pay;
+  const multiplier = payoutMultiplier(level) * DIFFICULTY[r.difficulty ?? 'normal'].pay * (perkFor(save, r.biome) === 'sponsor' ? 1.2 : 1);
   let credits = Math.round(base * multiplier);
   let techParts = 0;
   let firstBoss = false;
@@ -206,8 +206,70 @@ export function selectCar(save: SaveData, id: CarId): boolean {
   return true;
 }
 
+/** Apply the garage tuning sliders: gearing (top speed vs acceleration) and downforce (grip vs top speed). */
+export function applyTune(stats: ReturnType<typeof tunedStats>, tune: { gear: number; aero: number }) {
+  return {
+    ...stats,
+    maxSpeed: stats.maxSpeed * (1 + 0.06 * tune.gear) * (1 - 0.04 * tune.aero),
+    accel: stats.accel * (1 - 0.08 * tune.gear),
+    grip: stats.grip * (1 + 0.1 * tune.aero),
+  };
+}
+
+export function perkFor(save: SaveData, biome: BiomeId): Perk | null {
+  return save.locations[biome] >= 3 ? save.perks[biome] ?? null : null;
+}
+
+export const PERK_CHANGE_COST = 500;
+
+/** Choose (or change, for a fee) the focus of a location. */
+export function choosePerk(save: SaveData, biome: BiomeId, perk: Perk): BuyResult {
+  if (save.locations[biome] < 3) return 'locked';
+  const cur = save.perks[biome];
+  if (cur === perk) return 'owned';
+  if (cur) { if (save.credits < PERK_CHANGE_COST) return 'poor'; save.credits -= PERK_CHANGE_COST; }
+  save.perks[biome] = perk;
+  return 'ok';
+}
+
 export function carSetup(save: SaveData) {
-  return { stats: applyCar(tunedStats(save.upgrades), CARS[save.car]), mods: modsFor(save.loadout) };
+  const base = applyTune(applyCar(tunedStats(save.upgrades), CARS[save.car]), save.tune);
+  return { stats: base, mods: modsFor(save.loadout) };
+}
+
+// ---- passive income ----
+export const INCOME_PER_LEVEL_HOUR = 25;
+export const INCOME_CAP_HOURS = 8;
+export function incomeReady(save: SaveData, now = Date.now()): number {
+  const hours = Math.max(0, Math.min(INCOME_CAP_HOURS, (now - save.incomeAt) / 3600000));
+  let perHour = 0;
+  for (const b of BIOME_ORDER) perHour += (save.locations[b] - 1) * INCOME_PER_LEVEL_HOUR;
+  return Math.floor(perHour * hours);
+}
+export function collectIncome(save: SaveData, now = Date.now()): number {
+  const c = incomeReady(save, now);
+  save.incomeAt = now;
+  save.credits += c;
+  save.stats.earned += c;
+  return c;
+}
+
+// ---- time-attack medals ----
+export const MEDAL_FACTORS = [1.1, 1.0, 0.9]; // bronze, silver, gold as a factor of the par time
+export function medalFor(time: number, par: number): number {
+  return MEDAL_FACTORS.filter((f) => time <= par * f).length;
+}
+const MEDAL_REWARD: { credits: number; techParts: number }[] = [{ credits: 0, techParts: 0 }, { credits: 250, techParts: 0 }, { credits: 500, techParts: 1 }, { credits: 900, techParts: 2 }];
+/** Record a medal; pays the difference to the previous best tier. */
+export function awardMedal(save: SaveData, biome: BiomeId, time: number): { medal: number; credits: number; techParts: number; improved: boolean } {
+  const medal = medalFor(time, BIOME_PRESETS[biome].parTime);
+  const prev = save.medals[biome] ?? 0;
+  if (medal <= prev) return { medal, credits: 0, techParts: 0, improved: false };
+  let credits = 0, techParts = 0;
+  for (let t = prev + 1; t <= medal; t++) { credits += MEDAL_REWARD[t].credits; techParts += MEDAL_REWARD[t].techParts; }
+  save.medals[biome] = medal;
+  save.credits += credits; save.techParts += techParts;
+  return { medal, credits, techParts, improved: true };
 }
 
 /** Lifetime counters for achievements. Call once per finished race, after applyPayout. */

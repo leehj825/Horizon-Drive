@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { BIOME_PRESETS, type BiomeId, type BiomePreset } from '../data/biomes';
 import { featuresFor, type LocationFeatures } from '../data/upgrades';
+import type { Perk } from '../data/saveState';
 import { ParticleSystem, SkidMarks, Weather } from '../fx/Particles';
 import type { TrackFeatures } from '../vehicle/CarController';
 import { CoinField } from './Coins';
@@ -16,7 +17,13 @@ export interface Quality {
   pixelRatio: number;
 }
 
+/** Per-race world options. */
+export interface WorldOptions {
+  perk?: Perk | null;
+}
+
 export interface BiomeWorld {
+  opts: WorldOptions;
   preset: BiomePreset;
   level: number;
   track: Track;
@@ -36,7 +43,7 @@ export interface BiomeWorld {
 }
 
 /** Applies sky, fog, lights and builds the track for a biome at a given Location level. */
-export function loadBiomeScene(scene: THREE.Scene, biomeId: BiomeId, locationLevel: number, quality: Quality): BiomeWorld {
+export function loadBiomeScene(scene: THREE.Scene, biomeId: BiomeId, locationLevel: number, quality: Quality, opts: WorldOptions = {}): BiomeWorld {
   const preset = BIOME_PRESETS[biomeId];
   if (!preset) throw new Error(`Unknown biome: ${biomeId}`);
   const root = new THREE.Group();
@@ -86,7 +93,7 @@ export function loadBiomeScene(scene: THREE.Scene, biomeId: BiomeId, locationLev
   root.add(ambient, hemi, sun, sun.target);
 
   const track = new Track(preset);
-  const built: BuiltTrack = buildTrack(track, preset, locationLevel);
+  const built: BuiltTrack = buildTrack(track, preset, locationLevel, opts);
   root.add(built.group);
   const coins = new CoinField(track, built.bonusCoins);
   root.add(coins.mesh);
@@ -101,7 +108,7 @@ export function loadBiomeScene(scene: THREE.Scene, biomeId: BiomeId, locationLev
 
   const L = track.length;
   const world: BiomeWorld = {
-    preset, level: locationLevel, track,
+    opts, preset, level: locationLevel, track,
     trackFeatures: featuresFor(locationLevel),
     features: built.features,
     coins, particles, skids, sun, root, intersections: built.intersections, props,

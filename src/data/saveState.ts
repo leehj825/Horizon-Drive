@@ -13,6 +13,8 @@ export const GHOST_HZ = 20;
 export type Difficulty = 'easy' | 'normal' | 'hard';
 export type QualitySetting = 'auto' | 'high' | 'low';
 
+export type Perk = 'sponsor' | 'racing' | 'safety';
+
 export interface Settings {
   difficulty: Difficulty;
   /** Steering response multiplier. */
@@ -72,6 +74,13 @@ export interface SaveData {
   achievements: string[];
   /** Persistent car damage 0..1 (repair in the garage). */
   damage: number;
+  /** Location focus perks (unlocked at Lv.3). */
+  perks: Partial<Record<BiomeId, Perk>>;
+  /** Passive track income is collected from this time (ms since epoch). */
+  incomeAt: number;
+  tune: { gear: number; aero: number };
+  /** Best time-attack medal per biome (0 none .. 3 gold). */
+  medals: Partial<Record<BiomeId, number>>;
 }
 
 const KEY = 'hd_save_v1';
@@ -110,6 +119,10 @@ function fresh(): SaveData {
     stats: { races: 0, wins: 0, nearMisses: 0, perfectDrifts: 0, smashes: 0, wrecks: 0, jumps: 0, coins: 0, dailies: 0, champsWon: 0, earned: 0 },
     achievements: [],
     damage: 0,
+    perks: {},
+    incomeAt: Date.now(),
+    tune: { gear: 0, aero: 0 },
+    medals: {},
   };
 }
 
@@ -127,7 +140,7 @@ export class SaveState {
       const raw = safeStorage()?.getItem(KEY);
       if (raw) {
         const parsed = JSON.parse(raw) as Partial<SaveData>;
-        if (parsed.v === 1) this.data = { ...this.data, ...parsed, upgrades: { ...this.data.upgrades, ...parsed.upgrades }, locations: { ...this.data.locations, ...parsed.locations }, settings: { ...this.data.settings, ...parsed.settings }, stats: { ...this.data.stats, ...parsed.stats } };
+        if (parsed.v === 1) this.data = { ...this.data, ...parsed, upgrades: { ...this.data.upgrades, ...parsed.upgrades }, locations: { ...this.data.locations, ...parsed.locations }, settings: { ...this.data.settings, ...parsed.settings }, stats: { ...this.data.stats, ...parsed.stats }, tune: { ...this.data.tune, ...parsed.tune } };
       }
     } catch { /* corrupt save: start fresh */ }
   }

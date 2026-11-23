@@ -151,6 +151,42 @@ assert.equal(pinkSlipPrize(nm)!.car, 'muscle');
 const el = computePayout(nm, { ...base, mode: 'elimination', position: 2 });
 assert.equal(el.lines[0].value, 360);
 
+// perks, income, tuning, medals
+import { applyTune, awardMedal, choosePerk, collectIncome, incomeReady, medalFor, perkFor } from '../src/data/progression';
+const pk = new SaveState().data;
+assert.equal(choosePerk(pk, 'neon_street', 'racing'), 'locked', 'needs Lv.3');
+pk.locations.neon_street = 3;
+assert.equal(choosePerk(pk, 'neon_street', 'racing'), 'ok');
+assert.equal(perkFor(pk, 'neon_street'), 'racing');
+pk.credits = 100;
+assert.equal(choosePerk(pk, 'neon_street', 'sponsor'), 'poor', 'changing costs credits');
+pk.credits = 1000;
+assert.equal(choosePerk(pk, 'neon_street', 'sponsor'), 'ok');
+assert.equal(pk.credits, 500);
+const spons = computePayout(pk, { ...base, mode: 'circuit', position: 1 });
+pk.perks.neon_street = 'safety';
+const nonSpons = computePayout(pk, { ...base, mode: 'circuit', position: 1 });
+assert.ok(spons.credits > nonSpons.credits);
+const inc = new SaveState().data;
+inc.locations.neon_street = 3; inc.locations.red_canyon = 2;
+inc.incomeAt = 1_000_000;
+assert.equal(incomeReady(inc, 1_000_000 + 3600_000), 75);
+assert.equal(incomeReady(inc, 1_000_000 + 100 * 3600_000), 75 * 8, 'capped at 8 hours');
+assert.equal(collectIncome(inc, 1_000_000 + 7200_000), 150);
+assert.equal(incomeReady(inc, 1_000_000 + 7200_000), 0);
+const tuned = applyTune({ maxSpeed: 50, accel: 25, grip: 5, nitroRate: 1, wallKeep: 0.6, landSoak: 0, armor: 1 }, { gear: 1, aero: 0 });
+assert.ok(tuned.maxSpeed > 50 && tuned.accel < 25);
+const tuned2 = applyTune({ maxSpeed: 50, accel: 25, grip: 5, nitroRate: 1, wallKeep: 0.6, landSoak: 0, armor: 1 }, { gear: 0, aero: 1 });
+assert.ok(tuned2.grip > 5 && tuned2.maxSpeed < 50);
+const md = new SaveState().data;
+const par = 235;
+assert.equal(medalFor(300, par), 0); assert.equal(medalFor(250, par), 1); assert.equal(medalFor(235, par), 2); assert.equal(medalFor(200, par), 3);
+const m1 = awardMedal(md, 'neon_street', 250);
+assert.deepEqual([m1.medal, m1.credits, m1.improved], [1, 250, true]);
+const m2 = awardMedal(md, 'neon_street', 200);
+assert.deepEqual([m2.medal, m2.credits, m2.techParts], [3, 1400, 3], 'pays silver + gold on top of bronze');
+assert.equal(awardMedal(md, 'neon_street', 200).improved, false);
+
 // damage and repair
 const dm = new SaveState().data;
 assert.equal(repairCar(dm), 'owned');

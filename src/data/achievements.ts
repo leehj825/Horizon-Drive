@@ -25,6 +25,7 @@ export const ACHIEVEMENTS: Achievement[] = [
   { id: 'bossSlayer', reward: 1200, progress: (s) => [Math.min(1, s.bossesBeaten.length), 1] },
   { id: 'cityMaster', reward: 2000, progress: (s) => [Math.min(1, BIOME_ORDER.filter((b) => s.locations[b] >= MAX_LOCATION_LEVEL).length), 1] },
   { id: 'champion', reward: 1500, progress: stat('champsWon', 1) },
+  { id: 'goldRush', reward: 1200, progress: (s) => [Math.min(3, Object.values(s.medals).filter((m) => m === 3).length), 3] },
   { id: 'dailyHabit', reward: 700, progress: (s) => [Math.min(s.dailyStreak, 3), 3] },
 ];
 

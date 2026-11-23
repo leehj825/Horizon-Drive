@@ -10,7 +10,8 @@ import type { Synth } from '../audio/Synth';
 import { fmtTime } from './Hud';
 import { ACHIEVEMENTS } from '../data/achievements';
 import { CHAMPIONSHIPS, CHAMP_POINTS, champProgress, champUnlocked, dailyStatus, type RoundResult } from '../data/challenges';
-import { repairCar, repairCost, todaysChallenge } from '../data/progression';
+import { choosePerk, collectIncome, incomeReady, INCOME_CAP_HOURS, INCOME_PER_LEVEL_HOUR, MEDAL_FACTORS, PERK_CHANGE_COST, perkFor, repairCar, repairCost, todaysChallenge } from '../data/progression';
+import type { Perk } from '../data/saveState';
 import type { Difficulty, QualitySetting, Settings } from '../data/saveState';
 
 export type Screen = 'none' | 'main' | 'race' | 'garage' | 'locations' | 'results' | 'pause' | 'settings' | 'achievements';
@@ -31,6 +32,7 @@ export interface ResultsData {
   score?: number;
   medal?: number;
   slip?: { won: boolean; car: CarId; stake: number };
+  timeMedal?: { medal: number; credits: number; techParts: number; improved: boolean };
   dailyAttempt?: boolean;
   achievements?: string[];
   replayAvailable?: boolean;
@@ -76,6 +78,15 @@ export class Menus {
     });
     this.root.addEventListener('input', (e) => {
       const el = e.target as HTMLInputElement;
+      const tuneKey = el.dataset.tune as 'gear' | 'aero' | undefined;
+      if (tuneKey) {
+        this.host.save.data.tune[tuneKey] = Number(el.value);
+        const out = this.root.querySelector<HTMLElement>(`[data-val="${tuneKey}"]`);
+        if (out) out.textContent = (Number(el.value) > 0 ? '+' : '') + Math.round(Number(el.value) * 100) + '%';
+        this.host.save.persist();
+        this.host.refreshCar();
+        return;
+      }
       const key = el.dataset.set as keyof Settings | undefined;
       if (!key) return;
       (this.host.save.data.settings[key] as number) = Number(el.value);
@@ -129,6 +140,8 @@ export class Menus {
       case 'setDiff': d.settings.difficulty = arg as Difficulty; sfx.click(); save.save(); return;
       case 'setQuality': d.settings.quality = arg as QualitySetting; sfx.click(); save.save(); this.host.applySettings(); return;
       case 'replay': this.host.startReplay(); return;
+      case 'perk': { const r = choosePerk(d, (arg.split(':')[0] as BiomeId), arg.split(':')[1] as Perk); if (r === 'ok') { sfx.buy(); save.save(); if (arg.split(':')[0] === d.selectedBiome) this.host.previewBiome(d.selectedBiome); } return; }
+      case 'collect': { const c = collectIncome(d); if (c > 0) sfx.buy(); save.save(); return; }
       case 'repair': if (repairCar(d) === 'ok') { sfx.buy(); save.save(); this.host.refreshCar(); } return;
       case 'buyCar': if (buyCar(d, arg as CarId) === 'ok') { sfx.buy(); save.save(); this.host.refreshCar(); } return;
       case 'selCar': if (selectCar(d, arg as CarId)) { sfx.click(); save.save(); this.host.refreshCar(); } return;
@@ -220,7 +233,7 @@ export class Menus {
       const best = m === 'drift_trial' ? d.bestScores[key] : d.bestTimes[key];
       const bestTxt = best ? `${this.t('ui.best')} ${m === 'drift_trial' ? Math.round(best) : fmtTime(best)}` : '';
       const lockTxt = m === 'boss' ? this.t('ui.bossHint') : m === 'pink_slip' ? this.t('ui.noPrize') : '';
-      const extra = m === 'pink_slip' && slip ? `<span class="lv">${this.t('ui.prize')}: ${this.t('cars.' + slip.car + '.name')} · ${this.t('ui.stake')}: ${slip.stake} ${this.t('ui.credits')}${d.credits < slip.stake ? ' ⚠ ' + this.t('ui.needStake') : ''}</span>` : m === 'drift_trial' ? `<span class="lv">🥉 ${DRIFT_MEDALS[0]} · 🥈 ${DRIFT_MEDALS[1]} · 🥇 ${DRIFT_MEDALS[2]}</span>` : '';
+      const extra = m === 'pink_slip' && slip ? `<span class="lv">${this.t('ui.prize')}: ${this.t('cars.' + slip.car + '.name')} · ${this.t('ui.stake')}: ${slip.stake} ${this.t('ui.credits')}${d.credits < slip.stake ? ' ⚠ ' + this.t('ui.needStake') : ''}</span>` : m === 'time_attack' ? `<span class="lv">${['—', '🥉', '🥈', '🥇'][d.medals[sel] ?? 0]} · ${MEDAL_FACTORS.map((f, i) => ['🥉', '🥈', '🥇'][i] + ' ' + fmtTime(BIOME_PRESETS[sel].parTime * f)).join(' ')}</span>` : m === 'drift_trial' ? `<span class="lv">🥉 ${DRIFT_MEDALS[0]} · 🥈 ${DRIFT_MEDALS[1]} · 🥇 ${DRIFT_MEDALS[2]}</span>` : '';
       return `<button class="card mode ${this.mode === m ? 'sel' : ''} ${ok ? '' : 'lock'}" data-act="mode" data-arg="${m}">
         <b>${this.t('modes.' + m + '.name')}</b>
         <small>${ok ? this.t('modes.' + m + '.desc') : '🔒 ' + lockTxt}</small>${extra}
@@ -269,6 +282,13 @@ export class Menus {
       <small>${this.t('ui.finishTop2')}</small>
       ${st.done ? `<span class="chip">✓ ${this.t('ui.doneToday')}</span>` : ''}
       <button class="btn primary" data-act="startDaily">${this.t('ui.start')}</button></div></div>`;
+  }
+
+  private perkRow(id: BiomeId): string {
+    const d = this.host.save.data;
+    const cur = perkFor(d, id);
+    const btns = (['sponsor', 'racing', 'safety'] as Perk[]).map((p) => `<button class="btn sm ${cur === p ? 'sel' : ''}" title="${this.t('ui.perkd_' + p)}" data-act="perk" data-arg="${id}:${p}">${this.t('ui.perk_' + p)}</button>`).join('');
+    return `<small>${this.t('ui.perkTitle')}${cur ? ` — ${this.t('ui.perkd_' + cur)}` : ''}</small><div class="seg">${btns}</div>${cur ? `<small>${this.t('ui.perkChange', { n: PERK_CHANGE_COST })}</small>` : ''}`;
   }
 
   private fmtSetting(key: keyof Settings, v: number): string {
@@ -343,6 +363,9 @@ export class Menus {
     return `<div class="panel wide garage">${this.header(this.t('ui.garage'))}
       <div class="cond"><span>${this.t('ui.condition')}: <b>${Math.round((1 - d.damage) * 100)}%</b></span><div class="bar"><i style="width:${Math.round((1 - d.damage) * 100)}%"></i></div>${d.damage > 0.005 ? `<button class="btn sm primary" data-act="repair" ${d.credits < repairCost(d) ? 'disabled' : ''}>${this.t('ui.repair')} ${repairCost(d)} ${this.t('ui.credits')}</button>` : `<span class="chip">${this.t('ui.repaired')}</span>`}</div>
       <h3>${this.t('ui.vehicle')}</h3><div class="cards cars">${cars}</div>
+      <div class="tune"><h3>${this.t('ui.tuning')}</h3>
+        <label class="set"><span>${this.t('ui.gear')}<small>${this.t('ui.gearHint')}</small></span><input type="range" min="-1" max="1" step="0.1" value="${d.tune.gear}" data-tune="gear"><b data-val="gear">${d.tune.gear > 0 ? '+' : ''}${Math.round(d.tune.gear * 100)}%</b></label>
+        <label class="set"><span>${this.t('ui.aero')}<small>${this.t('ui.aeroHint')}</small></span><input type="range" min="-1" max="1" step="0.1" value="${d.tune.aero}" data-tune="aero"><b data-val="aero">${d.tune.aero > 0 ? '+' : ''}${Math.round(d.tune.aero * 100)}%</b></label></div>
       <div class="paints"><span>${this.t('ui.paint')}</span>${swatches}</div>
       <div class="statbar"><span>${kmh} ${this.t('ui.kmh')}</span><span>ACC ${stats.accel.toFixed(0)}</span><span>GRIP ${stats.grip.toFixed(1)}</span><span>NOS ×${(stats.nitroRate * mods.nitroDurationMul).toFixed(2)}</span></div>
       <div class="cols"><div><h3>${this.t('ui.vehicleUpgrades')}</h3>${rows}</div><div><h3>${this.t('ui.modular')}</h3>${eq}</div></div>
@@ -366,10 +389,13 @@ export class Menus {
         ${this.pips(lv, MAX_LOCATION_LEVEL)}
         <small><b>${this.t('tiers.' + lv + '.name')}</b> · ${this.t('ui.payoutBonus')} ×${payoutMultiplier(lv).toFixed(2)}</small>
         ${unlocked ? next : `<small>🔒 ${this.t('ui.unlockHint', { biome: gate })}</small>`}
+        ${unlocked && lv >= 3 ? this.perkRow(id) : ''}
         ${unlocked && !max ? `<button class="btn primary sm" data-act="upLoc" data-arg="${id}" ${afford ? '' : 'disabled'}>${this.t('ui.upgrade')} · ${c.credits.toLocaleString()} ${this.t('ui.credits')}${c.techParts ? ` + ${c.techParts} ${this.t('ui.techParts')}` : ''}</button>` : max ? `<span class="chip">${this.t('ui.maxed')}</span>` : ''}
       </div>`;
     }).join('');
-    return `<div class="panel wide">${this.header(this.t('ui.locations'))}<div class="cards loc-cards">${cards}</div></div>`;
+    const inc = incomeReady(d);
+    const banner = `<div class="cond"><span>${this.t('ui.income')}: <b>+${inc} ${this.t('ui.credits')}</b> <small>${this.t('ui.incomeHint', { n: INCOME_PER_LEVEL_HOUR, h: INCOME_CAP_HOURS })}</small></span><button class="btn sm primary" data-act="collect" ${inc < 1 ? 'disabled' : ''}>${this.t('ui.collect')}</button></div>`;
+    return `<div class="panel wide">${this.header(this.t('ui.locations'))}${banner}<div class="cards loc-cards">${cards}</div></div>`;
   }
 
   // ---- results ----
@@ -382,6 +408,7 @@ export class Menus {
     return `<div class="panel results">
       <h2 class="${won && !r.failed ? 'win' : ''}">${r.failed ? this.t('results.failed') : won ? this.t('results.win') : this.t('results.lose')}</h2>
       <div class="big-pos">${['time_attack', 'drift_trial', 'speed_run', 'delivery'].includes(r.mode) ? (r.mode === 'drift_trial' ? `${Math.round(r.score ?? 0)} ${r.medal ? ['', '🥉', '🥈', '🥇'][r.medal] : ''}` : '') : this.t('results.ordinal' + Math.min(4, r.position))}</div>
+      ${r.timeMedal && r.timeMedal.medal ? `<div class="bonus">${['', '🥉', '🥈', '🥇'][r.timeMedal.medal]} ${r.timeMedal.improved ? this.t('ui.newMedal') + (r.timeMedal.credits ? ` +${r.timeMedal.credits} ${this.t('ui.credits')}` : '') + (r.timeMedal.techParts ? ` +${r.timeMedal.techParts} ${this.t('ui.techParts')}` : '') : ''}</div>` : ''}
       ${r.slip ? `<div class="bonus">${r.slip.won ? this.t('results.slipWon', { car: this.t('cars.' + r.slip.car + '.name') }) : this.t('results.slipLost') + ' −' + r.slip.stake}</div>` : ''}
       <div class="line"><span>${this.t('results.time')}</span><b>${fmtTime(r.time)}${r.newBest ? ` <em>${this.t('ui.newBest')}</em>` : ''}</b></div>
       <div class="line"><span>${this.t('results.bestLap')}</span><b>${fmtTime(r.bestLap)}</b></div>

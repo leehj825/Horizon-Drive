@@ -208,3 +208,5 @@ input[type=range] { width: 100%; accent-color: var(--cyan); height: 28px; }
 .dmg i { display: block; height: 100%; background: linear-gradient(90deg, #ffb347, #ff4f5e); }
 .cond { display: flex; align-items: center; gap: 10px; margin: 4px 0 6px; font-size: 13px; color: var(--dim); flex-wrap: wrap; }
 .cond .bar { flex: 1; min-width: 120px; margin: 0; }
+label.set small { display: block; color: var(--dim); font-size: 11px; }
+.tune { margin: 6px 0 2px; } .tune h3 { margin: 6px 0; }
