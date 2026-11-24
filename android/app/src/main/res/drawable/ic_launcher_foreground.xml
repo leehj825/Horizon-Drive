@@ -1,0 +1,12 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- the player's orange-red sports car, rear view (kept inside the 66dp safe zone) -->
+    <path android:fillColor="#FF5A36" android:pathData="M34,70 L36,60 Q38,55 45,55 L63,55 Q70,55 72,60 L74,70 L74,76 L34,76 Z" />
+    <path android:fillColor="#1D2A3C" android:pathData="M42,57 L66,57 L68,63 L40,63 Z" />
+    <path android:fillColor="#19E6FF" android:pathData="M38,53 h32 v3 h-32z" />
+    <path android:fillColor="#FF2230" android:pathData="M37,66 h8 v4 h-8z M63,66 h8 v4 h-8z" />
+    <path android:fillColor="#15171F" android:pathData="M33,72 h6 v8 h-6z M69,72 h6 v8 h-6z" />
+</vector>

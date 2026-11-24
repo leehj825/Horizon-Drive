@@ -1,0 +1,462 @@
+import { BIOME_ORDER, BIOME_PRESETS, type BiomeId } from '../data/biomes';
+import { EQUIPMENT_LIST, SLOTS, type EquipmentId, type SlotId } from '../data/equipment';
+import { CAR_IDS, CARS, PAINTS, type CarId } from '../data/cars';
+import { DRIFT_MEDALS, pinkSlipPrize } from '../data/progression';
+import { buyCar, buyEquipment, buyUpgrade, carSetup, selectCar, isBiomeUnlocked, modeAvailable, toggleEquip, upgradeLocation, type Payout, type RaceMode } from '../data/progression';
+import type { SaveState } from '../data/saveState';
+import { MAX_LOCATION_LEVEL, MAX_UPGRADE, UPGRADE_IDS, locationCost, payoutMultiplier, upgradeCost, type UpgradeId } from '../data/upgrades';
+import type { I18n } from '../i18n/i18n';
+import type { Synth } from '../audio/Synth';
+import { fmtTime } from './Hud';
+import { ACHIEVEMENTS } from '../data/achievements';
+import { CHAMPIONSHIPS, CHAMP_POINTS, champProgress, champUnlocked, dailyStatus, type RoundResult } from '../data/challenges';
+import { choosePerk, collectIncome, incomeReady, INCOME_CAP_HOURS, INCOME_PER_LEVEL_HOUR, MEDAL_FACTORS, PERK_CHANGE_COST, perkFor, repairCar, repairCost, todaysChallenge } from '../data/progression';
+import type { Perk } from '../data/saveState';
+import type { Difficulty, QualitySetting, Settings, TrafficSetting } from '../data/saveState';
+
+export type Screen = 'none' | 'main' | 'race' | 'garage' | 'locations' | 'results' | 'pause' | 'settings' | 'achievements';
+
+export interface ResultsData {
+  biome: BiomeId;
+  mode: RaceMode;
+  position: number;
+  total: number;
+  time: number;
+  bestLap: number;
+  payout: Payout;
+  newBest: boolean;
+  /** Championship round just finished. */
+  champ?: RoundResult & { id: string; rounds: number };
+  daily?: { credits: number; techParts: number; streak: number } | null;
+  failed?: boolean;
+  score?: number;
+  medal?: number;
+  slip?: { won: boolean; car: CarId; stake: number };
+  timeMedal?: { medal: number; credits: number; techParts: number; improved: boolean };
+  dailyAttempt?: boolean;
+  achievements?: string[];
+  replayAvailable?: boolean;
+}
+
+export interface RaceExtra {
+  weather?: 'default' | 'rain' | 'fog' | 'night';
+  reverse?: boolean;
+  routeSeed?: number;
+}
+
+export interface MenuHost {
+  save: SaveState;
+  i18n: I18n;
+  sfx: Synth;
+  previewBiome(id: BiomeId): void;
+  refreshCar(): void;
+  startRace(biome: BiomeId, mode: RaceMode, extra?: RaceExtra): void;
+  resume(): void;
+  retry(): void;
+  quit(): void;
+  /** Camera framing for the menu backdrop. */
+  setShowroom(close: boolean): void;
+  applySettings(): void;
+  startChampionship(id: string): void;
+  startDaily(): void;
+  startReplay(): void;
+}
+
+const MODES: RaceMode[] = ['time_attack', 'duel', 'circuit', 'elimination', 'drift_trial', 'speed_run', 'delivery', 'pink_slip', 'boss'];
+const esc = (s: string) => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]!);
+
+/** DOM menus: main, race setup, garage, locations, results, pause. Pure view over SaveState. */
+export class Menus {
+  screen: Screen = 'none';
+  private mode: RaceMode = 'time_attack';
+  private raceTab: 'free' | 'champ' | 'daily' = 'free';
+  private cond: NonNullable<RaceExtra['weather']> = 'default';
+  private reverse = false;
+  private random = false;
+  private results: ResultsData | null = null;
+  readonly root: HTMLElement;
+
+  constructor(parent: HTMLElement, private host: MenuHost) {
+    this.root = document.createElement('div');
+    this.root.id = 'screen';
+    parent.appendChild(this.root);
+    this.root.addEventListener('click', (e) => {
+      const el = (e.target as HTMLElement).closest<HTMLElement>('[data-act]');
+      if (!el || (el as HTMLButtonElement).disabled) return;
+      this.act(el.dataset.act!, el.dataset.arg ?? '');
+    });
+    this.root.addEventListener('input', (e) => {
+      const el = e.target as HTMLInputElement;
+      const tuneKey = el.dataset.tune as 'gear' | 'aero' | undefined;
+      if (tuneKey) {
+        this.host.save.data.tune[tuneKey] = Number(el.value);
+        const out = this.root.querySelector<HTMLElement>(`[data-val="${tuneKey}"]`);
+        if (out) out.textContent = (Number(el.value) > 0 ? '+' : '') + Math.round(Number(el.value) * 100) + '%';
+        this.host.save.persist();
+        this.host.refreshCar();
+        return;
+      }
+      const key = el.dataset.set as keyof Settings | undefined;
+      if (!key) return;
+      (this.host.save.data.settings[key] as number) = Number(el.value);
+      const out = this.root.querySelector<HTMLElement>(`[data-val="${key}"]`);
+      if (out) out.textContent = this.fmtSetting(key, Number(el.value));
+      this.host.save.persist();
+      this.host.applySettings();
+    });
+    host.i18n.onChange(() => this.render());
+    host.save.onChange(() => { if (this.screen !== 'none') this.render(); });
+  }
+
+  private get t() { return (p: string, v?: Record<string, string | number>) => this.host.i18n.t(p, v); }
+
+  show(screen: Screen, results?: ResultsData): void {
+    this.screen = screen;
+    if (results) this.results = results;
+    this.host.setShowroom(screen === 'garage');
+    this.render();
+  }
+
+  private act(a: string, arg: string): void {
+    const { save, sfx } = this.host;
+    const d = save.data;
+    sfx.resume();
+    switch (a) {
+      case 'nav': sfx.click(); this.show(arg as Screen); return;
+      case 'lang': sfx.click(); d.lang = arg as 'en' | 'ko'; save.save(); this.host.i18n.setLanguage(arg as 'en' | 'ko'); return;
+      case 'sound': d.muted = !d.muted; sfx.setMuted(d.muted); save.save(); return;
+      case 'fullscreen': if (document.fullscreenElement) void document.exitFullscreen(); else void document.documentElement.requestFullscreen?.(); return;
+      case 'reset': if (confirm(this.t('ui.resetConfirm'))) { save.reset(); this.host.i18n.setLanguage(save.data.lang); this.host.previewBiome(save.data.selectedBiome); this.host.refreshCar(); } return;
+      case 'biome': {
+        const id = arg as BiomeId;
+        if (!isBiomeUnlocked(d, id)) return;
+        sfx.click(); d.selectedBiome = id; save.save(); this.host.previewBiome(id);
+        if (!modeAvailable(d, id, this.mode)) this.mode = 'time_attack';
+        this.render();
+        return;
+      }
+      case 'mode': if (modeAvailable(d, d.selectedBiome, arg as RaceMode)) { sfx.click(); this.mode = arg as RaceMode; this.render(); } return;
+      case 'start': {
+        const ps = pinkSlipPrize(d);
+        if (this.mode === 'pink_slip' && (!ps || d.credits < ps.stake)) return;
+        this.host.startRace(d.selectedBiome, this.mode, { weather: this.cond, reverse: this.reverse, routeSeed: this.random && BIOME_PRESETS[d.selectedBiome].route ? 1 + Math.floor(Math.random() * 9000) : 0 });
+        return;
+      }
+      case 'cond': this.cond = arg as NonNullable<RaceExtra['weather']>; sfx.click(); this.render(); return;
+      case 'toggleReverse': this.reverse = !this.reverse; sfx.click(); this.render(); return;
+      case 'toggleRandom': this.random = !this.random; sfx.click(); this.render(); return;
+      case 'tab': sfx.click(); this.raceTab = arg as 'free' | 'champ' | 'daily'; this.render(); return;
+      case 'startChamp': this.host.startChampionship(arg); return;
+      case 'resetChamp': if (confirm(this.t('ui.resetConfirm'))) { delete d.champs[arg]; save.save(); } return;
+      case 'startDaily': this.host.startDaily(); return;
+      case 'setDiff': d.settings.difficulty = arg as Difficulty; sfx.click(); save.save(); return;
+      case 'setTraffic': d.settings.traffic = arg as TrafficSetting; sfx.click(); save.save(); return;
+      case 'setQuality': d.settings.quality = arg as QualitySetting; sfx.click(); save.save(); this.host.applySettings(); return;
+      case 'replay': this.host.startReplay(); return;
+      case 'perk': { const r = choosePerk(d, (arg.split(':')[0] as BiomeId), arg.split(':')[1] as Perk); if (r === 'ok') { sfx.buy(); save.save(); if (arg.split(':')[0] === d.selectedBiome) this.host.previewBiome(d.selectedBiome); } return; }
+      case 'collect': { const c = collectIncome(d); if (c > 0) sfx.buy(); save.save(); return; }
+      case 'repair': if (repairCar(d) === 'ok') { sfx.buy(); save.save(); this.host.refreshCar(); } return;
+      case 'buyCar': if (buyCar(d, arg as CarId) === 'ok') { sfx.buy(); save.save(); this.host.refreshCar(); } return;
+      case 'selCar': if (selectCar(d, arg as CarId)) { sfx.click(); save.save(); this.host.refreshCar(); } return;
+      case 'paint': d.paint = Number(arg); sfx.click(); save.save(); this.host.refreshCar(); return;
+      case 'buyUp': if (buyUpgrade(d, arg as UpgradeId) === 'ok') { sfx.buy(); save.save(); this.host.refreshCar(); } return;
+      case 'buyEq': if (buyEquipment(d, arg as EquipmentId) === 'ok') { sfx.buy(); toggleEquip(d, arg as EquipmentId); save.save(); this.host.refreshCar(); } return;
+      case 'equip': if (toggleEquip(d, arg as EquipmentId)) { sfx.click(); save.save(); this.host.refreshCar(); } return;
+      case 'upLoc': {
+        const id = arg as BiomeId;
+        if (upgradeLocation(d, id) === 'ok') { sfx.buy(); save.save(); if (id === d.selectedBiome) this.host.previewBiome(id); }
+        return;
+      }
+      case 'resume': this.host.resume(); return;
+      case 'retry': this.host.retry(); return;
+      case 'quit': this.host.quit(); return;
+    }
+  }
+
+  render(): void {
+    const s = this.screen;
+    this.root.className = `scr-${s}`;
+    this.root.hidden = s === 'none';
+    if (s === 'none') { this.root.innerHTML = ''; return; }
+    const body = s === 'main' ? this.main() : s === 'settings' ? this.settingsView() : s === 'achievements' ? this.achievementsView() : s === 'race' ? this.raceSetup() : s === 'garage' ? this.garage() : s === 'locations' ? this.locations() : s === 'results' ? this.resultsView() : this.pause();
+    this.root.innerHTML = body;
+  }
+
+  // ---- shared bits ----
+  private wallet(): string {
+    const d = this.host.save.data;
+    return `<div class="wallet"><span class="chip cr">${d.credits.toLocaleString()} <small>${this.t('ui.credits')}</small></span><span class="chip tp">${d.techParts} <small>${this.t('ui.techParts')}</small></span></div>`;
+  }
+
+  private header(title: string, back = true): string {
+    return `<div class="top">${back ? `<button class="btn ghost" data-act="nav" data-arg="main">‹ ${this.t('ui.back')}</button>` : '<span></span>'}<h2>${esc(title)}</h2>${this.wallet()}</div>`;
+  }
+
+  private pips(level: number, max: number): string {
+    let h = '<span class="pips">';
+    for (let i = 0; i < max; i++) h += `<i class="${i < level ? 'on' : ''}"></i>`;
+    return h + '</span>';
+  }
+
+  // ---- main ----
+  private main(): string {
+    const d = this.host.save.data;
+    const p = BIOME_PRESETS[d.selectedBiome];
+    const lv = d.locations[d.selectedBiome];
+    return `<div class="panel main">
+      <div class="brand"><h1>${this.t('ui.title')}</h1><p>${this.t('ui.tagline')}</p></div>
+      ${this.wallet()}
+      <div class="menu-buttons">
+        <button class="btn primary" data-act="nav" data-arg="race">${this.t('ui.play')}</button>
+        <button class="btn" data-act="nav" data-arg="garage">${this.t('ui.garage')}</button>
+        <button class="btn" data-act="nav" data-arg="locations">${this.t('ui.locations')}</button>
+        <div class="row duo"><button class="btn sm" data-act="nav" data-arg="achievements">🏆 ${this.t('ui.achievements')}</button><button class="btn sm" data-act="nav" data-arg="settings">⚙ ${this.t('ui.settings')}</button></div>
+      </div>
+      <div class="now"><b>${this.t('biomes.' + p.id + '.name')}</b> · ${this.t('ui.locationLevel')} ${lv} · ${this.t('ui.payoutBonus')} ×${payoutMultiplier(lv).toFixed(2)}</div>
+      <div class="row settings">
+        <span>${this.t('ui.language')}</span>
+        <button class="btn sm ${d.lang === 'en' ? 'sel' : ''}" data-act="lang" data-arg="en">EN</button>
+        <button class="btn sm ${d.lang === 'ko' ? 'sel' : ''}" data-act="lang" data-arg="ko">한국어</button>
+        <button class="btn sm" data-act="sound">${this.t('ui.sound')}: ${d.muted ? this.t('ui.off') : this.t('ui.on')}</button>
+        <button class="btn sm" data-act="fullscreen">${this.t('ui.fullscreen')}</button>
+      </div>
+      <p class="hint">${this.t('ui.controls')}</p>
+      <button class="link" data-act="reset">${this.t('ui.reset')}</button>
+    </div>`;
+  }
+
+  // ---- race setup ----
+  private raceSetup(): string {
+    const d = this.host.save.data;
+    const sel = d.selectedBiome;
+    const cards = BIOME_ORDER.map((id) => {
+      const p = BIOME_PRESETS[id];
+      const unlocked = isBiomeUnlocked(d, id);
+      const gate = p.unlockedBy ? this.t('biomes.' + p.unlockedBy + '.name') : '';
+      return `<button class="card biome ${id} ${sel === id ? 'sel' : ''} ${unlocked ? '' : 'lock'}" data-act="biome" data-arg="${id}">
+        <b>${this.t('biomes.' + id + '.name')}</b>
+        <span class="lv">${this.t('ui.locationLevel')} ${d.locations[id]}</span>
+        <small>${unlocked ? this.t('biomes.' + id + '.desc') : '🔒 ' + this.t('ui.unlockHint', { biome: gate })}</small>
+      </button>`;
+    }).join('');
+    const slip = pinkSlipPrize(d);
+    const modeBtns = MODES.map((m) => {
+      const ok = modeAvailable(d, sel, m);
+      const key = `${sel}:${m}`;
+      const best = m === 'drift_trial' ? d.bestScores[key] : d.bestTimes[key];
+      const bestTxt = best ? `${this.t('ui.best')} ${m === 'drift_trial' ? Math.round(best) : fmtTime(best)}` : '';
+      const lockTxt = m === 'boss' ? this.t('ui.bossHint') : m === 'pink_slip' ? this.t('ui.noPrize') : '';
+      const extra = m === 'pink_slip' && slip ? `<span class="lv">${this.t('ui.prize')}: ${this.t('cars.' + slip.car + '.name')} · ${this.t('ui.stake')}: ${slip.stake} ${this.t('ui.credits')}${d.credits < slip.stake ? ' ⚠ ' + this.t('ui.needStake') : ''}</span>` : m === 'time_attack' ? `<span class="lv">${['—', '🥉', '🥈', '🥇'][d.medals[sel] ?? 0]} · ${MEDAL_FACTORS.map((f, i) => ['🥉', '🥈', '🥇'][i] + ' ' + fmtTime(BIOME_PRESETS[sel].parTime * f)).join(' ')}</span>` : m === 'drift_trial' ? `<span class="lv">🥉 ${DRIFT_MEDALS[0]} · 🥈 ${DRIFT_MEDALS[1]} · 🥇 ${DRIFT_MEDALS[2]}</span>` : '';
+      return `<button class="card mode ${this.mode === m ? 'sel' : ''} ${ok ? '' : 'lock'}" data-act="mode" data-arg="${m}">
+        <b>${this.t('modes.' + m + '.name')}</b>
+        <small>${ok ? this.t('modes.' + m + '.desc') : '🔒 ' + lockTxt}</small>${extra}
+        ${bestTxt ? `<span class="lv">${bestTxt}</span>` : ''}
+      </button>`;
+    }).join('');
+    const p = BIOME_PRESETS[sel];
+    const rec = EQUIPMENT_LIST.filter((e) => e.recommended.includes(sel) && d.loadout[e.slot] !== e.id).map((e) => this.t('equipment.' + e.id + '.name'));
+    const ghost = this.mode === 'time_attack' ? (d.ghosts[sel] ? `${this.t('ui.ghost')} ${fmtTime(d.ghosts[sel]!.time)}` : this.t('ui.noGhost')) : '';
+    const tabs = (['free', 'champ', 'daily'] as const).map((tb) => `<button class="btn sm ${this.raceTab === tb ? 'sel' : ''}" data-act="tab" data-arg="${tb}">${this.t(tb === 'free' ? 'ui.freeRace' : tb === 'champ' ? 'ui.championship' : 'ui.daily')}</button>`).join('');
+    if (this.raceTab === 'champ') return `<div class="panel wide">${this.header(this.t('ui.play'))}<div class="row tabs">${tabs}</div>${this.champTab()}</div>`;
+    if (this.raceTab === 'daily') return `<div class="panel wide">${this.header(this.t('ui.play'))}<div class="row tabs">${tabs}</div>${this.dailyTab()}</div>`;
+    return `<div class="panel wide">${this.header(this.t('ui.play'))}<div class="row tabs">${tabs}</div>
+      <h3>${this.t('ui.selectLocation')}</h3><div class="cards">${cards}</div>
+      <h3>${this.t('ui.selectEvent')}</h3><div class="cards">${modeBtns}</div>
+      <div class="meta">${this.t('ui.par')} ${fmtTime(p.parTime)}${ghost ? ' · ' + ghost : ''}${rec.length ? `<br><span class="rec">★ ${this.t('ui.recommended')}: ${rec.join(', ')}</span>` : ''}</div>
+      <h3>${this.t('ui.traffic')}</h3><div class="seg">${(['off', 'low', 'normal', 'high'] as const).map((tv) => `<button class="btn sm ${d.settings.traffic === tv ? 'sel' : ''}" data-act="setTraffic" data-arg="${tv}">${this.t('ui.traffic' + tv[0].toUpperCase() + tv.slice(1))}</button>`).join('')}</div>
+      <h3>${this.t('ui.conditions')}</h3>
+      <div class="seg">${(['default', 'rain', 'fog', 'night'] as const).map((c) => `<button class="btn sm ${this.cond === c ? 'sel' : ''}" data-act="cond" data-arg="${c}">${this.t('ui.cond_' + c)}</button>`).join('')}
+        <button class="btn sm ${this.reverse ? 'sel' : ''}" data-act="toggleReverse">↺ ${this.t('ui.reverse')}</button>
+        ${p.route ? `<button class="btn sm ${this.random ? 'sel' : ''}" data-act="toggleRandom">🎲 ${this.t('ui.randomStreet')}</button>` : ''}</div>
+      ${this.random && p.route ? `<p class="hint">${this.t('ui.randomHint')}</p>` : ''}
+      <button class="btn primary big" data-act="start">${this.t('ui.start')}</button>
+    </div>`;
+  }
+
+  private champTab(): string {
+    const d = this.host.save.data;
+    return `<div class="cards">${CHAMPIONSHIPS.map((c) => {
+      const prog = champProgress(d, c.id);
+      const unlocked = champUnlocked(c, (b) => isBiomeUnlocked(d, b));
+      const list = c.biomes.map((b, i) => `<li class="${i < prog.round ? 'done' : i === prog.round && !prog.done ? 'now' : ''}">${i < prog.round ? '✓' : i + 1}. ${this.t('biomes.' + b + '.name')}</li>`).join('');
+      const names = ['YOU', ...c.rivals];
+      const board = prog.round > 0 ? `<div class="board">${names.map((n, i) => ({ n, p: prog.points[i] })).sort((a, b) => b.p - a.p).map((x) => `<span class="${x.n === 'YOU' ? 'me' : ''}">${x.n} ${x.p}${this.t('ui.points')}</span>`).join('')}</div>` : '';
+      const trophy = prog.done ? `<span class="lv">🏆 ${prog.trophy ? this.t('ui.' + prog.trophy) : '—'} · ${this.t('ui.champDone')}</span>` : '';
+      const btn = !unlocked ? `<small>🔒 ${this.t('ui.needsUnlock')}</small>`
+        : prog.done ? `<button class="btn sm" data-act="resetChamp" data-arg="${c.id}">${this.t('ui.restart')}</button>`
+        : `<button class="btn sm primary" data-act="startChamp" data-arg="${c.id}">${prog.round === 0 ? this.t('ui.startRound') : this.t('ui.continueRound')} ${prog.round + 1}/${c.biomes.length}</button>${prog.round > 0 ? `<button class="link" data-act="resetChamp" data-arg="${c.id}">${this.t('ui.restart')}</button>` : ''}`;
+      return `<div class="card champ ${unlocked ? '' : 'lock'}"><b>${this.t('champs.' + c.id + '.name')}</b><small>${this.t('champs.' + c.id + '.desc')}</small><ul class="rounds">${list}</ul>${board}${trophy}<small>${CHAMP_POINTS.join(' / ')} ${this.t('ui.points')} · ${this.t('ui.rewardL')}: 🥇 ${c.rewards.gold.toLocaleString()} ${this.t('ui.credits')}</small>${btn}</div>`;
+    }).join('')}</div>`;
+  }
+
+  private dailyTab(): string {
+    const d = this.host.save.data;
+    const ch = todaysChallenge(d);
+    const st = dailyStatus(d, ch.date);
+    const mods = ch.modIds.map((m) => `<li><b>${this.t('mods.' + m + '.name')}</b> — ${this.t('mods.' + m + '.desc')}</li>`).join('');
+    return `<div class="cards"><div class="card champ daily"><b>${this.t('ui.daily')} · ${ch.date}</b>
+      <span class="lv">${this.t('biomes.' + ch.biome + '.name')} · ${this.t('modes.circuit.name')}</span>
+      <small>${this.t('ui.modifiers')}</small><ul class="rounds">${mods}</ul>
+      <small>${this.t('ui.rewardL')}: +${ch.reward.credits} ${this.t('ui.credits')} · +${ch.reward.techParts} ${this.t('ui.techParts')} · ${this.t('ui.streak')} ${st.streak}</small>
+      <small>${this.t('ui.finishTop2')}</small>
+      ${st.done ? `<span class="chip">✓ ${this.t('ui.doneToday')}</span>` : ''}
+      <button class="btn primary" data-act="startDaily">${this.t('ui.start')}</button></div></div>`;
+  }
+
+  private perkRow(id: BiomeId): string {
+    const d = this.host.save.data;
+    const cur = perkFor(d, id);
+    const btns = (['sponsor', 'racing', 'safety'] as Perk[]).map((p) => `<button class="btn sm ${cur === p ? 'sel' : ''}" title="${this.t('ui.perkd_' + p)}" data-act="perk" data-arg="${id}:${p}">${this.t('ui.perk_' + p)}</button>`).join('');
+    return `<small>${this.t('ui.perkTitle')}${cur ? ` — ${this.t('ui.perkd_' + cur)}` : ''}</small><div class="seg">${btns}</div>${cur ? `<small>${this.t('ui.perkChange', { n: PERK_CHANGE_COST })}</small>` : ''}`;
+  }
+
+  private fmtSetting(key: keyof Settings, v: number): string {
+    if (key === 'fov') return `${v > 0 ? '+' : ''}${v}°`;
+    return `${Math.round(v * 100)}%`;
+  }
+
+  private settingsView(): string {
+    const st = this.host.save.data.settings;
+    const seg = (act: string, cur: string, opts: [string, string][]) => `<div class="seg">${opts.map(([v, label]) => `<button class="btn sm ${cur === v ? 'sel' : ''}" data-act="${act}" data-arg="${v}">${label}</button>`).join('')}</div>`;
+    const range = (key: keyof Settings, label: string, min: number, max: number, step: number) => `<label class="set"><span>${label}</span><input type="range" min="${min}" max="${max}" step="${step}" value="${st[key]}" data-set="${key}"><b data-val="${key}">${this.fmtSetting(key, st[key] as number)}</b></label>`;
+    return `<div class="panel">${this.header(this.t('ui.settings'))}
+      <h3>${this.t('ui.difficulty')}</h3>${seg('setDiff', st.difficulty, [['easy', this.t('ui.easy')], ['normal', this.t('ui.normal')], ['hard', this.t('ui.hard')]])}<p class="hint">${this.t('ui.diffHint')}</p>
+      <h3>${this.t('ui.traffic')}</h3>${seg('setTraffic', st.traffic, [['off', this.t('ui.trafficOff')], ['low', this.t('ui.trafficLow')], ['normal', this.t('ui.trafficNormal')], ['high', this.t('ui.trafficHigh')]])}<p class="hint">${this.t('ui.trafficHint')}</p>
+      <h3>${this.t('ui.graphics')}</h3>${seg('setQuality', st.quality, [['auto', this.t('ui.auto')], ['high', this.t('ui.high')], ['low', this.t('ui.low')]])}
+      <h3>${this.t('ui.settings')}</h3>
+      ${range('steer', this.t('ui.steerSens'), 0.5, 1.6, 0.05)}${range('fov', this.t('ui.fovSet'), -10, 14, 1)}${range('shake', this.t('ui.camShake'), 0, 1.5, 0.1)}${range('volume', this.t('ui.volume'), 0, 1, 0.05)}${range('touchScale', this.t('ui.touchSize'), 0.7, 1.4, 0.05)}
+    </div>`;
+  }
+
+  private achievementsView(): string {
+    const d = this.host.save.data;
+    const rows = ACHIEVEMENTS.map((a) => {
+      const [cur, tgt] = a.progress(d);
+      const got = d.achievements.includes(a.id);
+      return `<div class="item ${got ? 'on' : ''}"><div class="grow"><b>${got ? '🏆 ' : ''}${this.t('ach.' + a.id + '.name')}</b><small>${this.t('ach.' + a.id + '.desc')}</small>
+        <div class="bar"><i style="width:${Math.round((cur / tgt) * 100)}%"></i></div></div><span class="chip cr">+${a.reward}</span></div>`;
+    }).join('');
+    return `<div class="panel wide">${this.header(this.t('ui.achievements') + ` ${d.achievements.length}/${ACHIEVEMENTS.length}`)}${rows}</div>`;
+  }
+
+  // ---- garage ----
+  private garage(): string {
+    const d = this.host.save.data;
+    const { stats, mods } = carSetup(d);
+    const rows = UPGRADE_IDS.map((id) => {
+      const lv = d.upgrades[id];
+      const max = lv >= MAX_UPGRADE;
+      const cost = upgradeCost(lv);
+      return `<div class="row up">
+        <div class="grow"><b>${this.t('upgrades.' + id + '.name')}</b> ${this.pips(lv, MAX_UPGRADE)}<small>${this.t('upgrades.' + id + '.desc')}</small></div>
+        <button class="btn sm ${max ? 'ghost' : 'primary'}" data-act="buyUp" data-arg="${id}" ${max || d.credits < cost ? 'disabled' : ''}>${max ? this.t('ui.maxed') : `${cost} ${this.t('ui.credits')}`}</button>
+      </div>`;
+    }).join('');
+    const slotName: Record<SlotId, string> = { suspension: this.t('ui.slotSuspension'), booster: this.t('ui.slotBooster'), utility: this.t('ui.slotUtility') };
+    const sel = d.selectedBiome;
+    const eq = SLOTS.map((slot) => {
+      const items = EQUIPMENT_LIST.filter((e) => e.slot === slot).map((e) => {
+        const owned = d.owned.includes(e.id);
+        const on = d.loadout[slot] === e.id;
+        const rec = e.recommended.includes(sel) || e.recommended.includes('all');
+        const btn = owned
+          ? `<button class="btn sm ${on ? 'sel' : ''}" data-act="equip" data-arg="${e.id}">${on ? this.t('ui.equipped') : this.t('ui.equip')}</button>`
+          : `<button class="btn sm primary" data-act="buyEq" data-arg="${e.id}" ${d.credits < e.cost ? 'disabled' : ''}>${e.cost} ${this.t('ui.credits')}</button>`;
+        return `<div class="item ${on ? 'on' : ''}"><div class="grow"><b>${this.t('equipment.' + e.id + '.name')}</b>${rec ? ' <em>★</em>' : ''}<small>${this.t('equipment.' + e.id + '.desc')}</small></div>${btn}</div>`;
+      }).join('');
+      return `<div class="slot"><h4>${slotName[slot]}</h4>${items}</div>`;
+    }).join('');
+    const kmh = Math.round(stats.maxSpeed * 3.6);
+    const cars = CAR_IDS.map((id) => {
+      const c = CARS[id];
+      const owned = d.carsOwned.includes(id);
+      const on = d.car === id;
+      const m = c.mult;
+      const pct = (v: number) => (v >= 1 ? '+' : '') + Math.round((v - 1) * 100) + '%';
+      const btn = owned
+        ? `<button class="btn sm ${on ? 'sel' : ''}" data-act="selCar" data-arg="${id}">${on ? this.t('ui.selected') : this.t('ui.select')}</button>`
+        : `<button class="btn sm primary" data-act="buyCar" data-arg="${id}" ${d.credits < c.cost ? 'disabled' : ''}>${c.cost.toLocaleString()} ${this.t('ui.credits')}</button>`;
+      return `<div class="card car ${on ? 'sel' : ''}"><b>${this.t('cars.' + id + '.name')}</b><small>${this.t('cars.' + id + '.desc')}</small>
+        <span class="lv">TOP ${pct(m.maxSpeed)} · ACC ${pct(m.accel)} · GRIP ${pct(m.grip)}</span>${btn}</div>`;
+    }).join('');
+    const swatches = PAINTS.map((p, i) => `<button class="swatch ${d.paint === i ? 'on' : ''}" data-act="paint" data-arg="${i}" style="background:#${p[0].toString(16).padStart(6, '0')};box-shadow:inset 0 -6px 0 #${p[1].toString(16).padStart(6, '0')}" aria-label="paint ${i + 1}"></button>`).join('');
+    return `<div class="panel wide garage">${this.header(this.t('ui.garage'))}
+      <div class="cond"><span>${this.t('ui.condition')}: <b>${Math.round((1 - d.damage) * 100)}%</b></span><div class="bar"><i style="width:${Math.round((1 - d.damage) * 100)}%"></i></div>${d.damage > 0.005 ? `<button class="btn sm primary" data-act="repair" ${d.credits < repairCost(d) ? 'disabled' : ''}>${this.t('ui.repair')} ${repairCost(d)} ${this.t('ui.credits')}</button>` : `<span class="chip">${this.t('ui.repaired')}</span>`}</div>
+      <h3>${this.t('ui.vehicle')}</h3><div class="cards cars">${cars}</div>
+      <div class="tune"><h3>${this.t('ui.tuning')}</h3>
+        <label class="set"><span>${this.t('ui.gear')}<small>${this.t('ui.gearHint')}</small></span><input type="range" min="-1" max="1" step="0.1" value="${d.tune.gear}" data-tune="gear"><b data-val="gear">${d.tune.gear > 0 ? '+' : ''}${Math.round(d.tune.gear * 100)}%</b></label>
+        <label class="set"><span>${this.t('ui.aero')}<small>${this.t('ui.aeroHint')}</small></span><input type="range" min="-1" max="1" step="0.1" value="${d.tune.aero}" data-tune="aero"><b data-val="aero">${d.tune.aero > 0 ? '+' : ''}${Math.round(d.tune.aero * 100)}%</b></label></div>
+      <div class="paints"><span>${this.t('ui.paint')}</span>${swatches}</div>
+      <div class="statbar"><span>${kmh} ${this.t('ui.kmh')}</span><span>ACC ${stats.accel.toFixed(0)}</span><span>GRIP ${stats.grip.toFixed(1)}</span><span>NOS ×${(stats.nitroRate * mods.nitroDurationMul).toFixed(2)}</span></div>
+      <div class="cols"><div><h3>${this.t('ui.vehicleUpgrades')}</h3>${rows}</div><div><h3>${this.t('ui.modular')}</h3>${eq}</div></div>
+    </div>`;
+  }
+
+  // ---- locations ----
+  private locations(): string {
+    const d = this.host.save.data;
+    const cards = BIOME_ORDER.map((id) => {
+      const p = BIOME_PRESETS[id];
+      const lv = d.locations[id];
+      const unlocked = isBiomeUnlocked(d, id);
+      const max = lv >= MAX_LOCATION_LEVEL;
+      const c = locationCost(lv);
+      const afford = d.credits >= c.credits && d.techParts >= c.techParts;
+      const next = max ? '' : `<small>${this.t('ui.upgrade')} → Lv.${lv + 1}: <b>${this.t('tiers.' + (lv + 1) + '.name')}</b> — ${this.t('tiers.' + (lv + 1) + '.desc')}</small>`;
+      const gate = p.unlockedBy ? this.t('biomes.' + p.unlockedBy + '.name') : '';
+      return `<div class="card loc ${id} ${unlocked ? '' : 'lock'}">
+        <div class="row"><b class="grow">${this.t('biomes.' + id + '.name')}</b><span class="lv">${this.t('ui.locationLevel')} ${lv}</span></div>
+        ${this.pips(lv, MAX_LOCATION_LEVEL)}
+        <small><b>${this.t('tiers.' + lv + '.name')}</b> · ${this.t('ui.payoutBonus')} ×${payoutMultiplier(lv).toFixed(2)}</small>
+        ${unlocked ? next : `<small>🔒 ${this.t('ui.unlockHint', { biome: gate })}</small>`}
+        ${unlocked && lv >= 3 ? this.perkRow(id) : ''}
+        ${unlocked && !max ? `<button class="btn primary sm" data-act="upLoc" data-arg="${id}" ${afford ? '' : 'disabled'}>${this.t('ui.upgrade')} · ${c.credits.toLocaleString()} ${this.t('ui.credits')}${c.techParts ? ` + ${c.techParts} ${this.t('ui.techParts')}` : ''}</button>` : max ? `<span class="chip">${this.t('ui.maxed')}</span>` : ''}
+      </div>`;
+    }).join('');
+    const inc = incomeReady(d);
+    const banner = `<div class="cond"><span>${this.t('ui.income')}: <b>+${inc} ${this.t('ui.credits')}</b> <small>${this.t('ui.incomeHint', { n: INCOME_PER_LEVEL_HOUR, h: INCOME_CAP_HOURS })}</small></span><button class="btn sm primary" data-act="collect" ${inc < 1 ? 'disabled' : ''}>${this.t('ui.collect')}</button></div>`;
+    return `<div class="panel wide">${this.header(this.t('ui.locations'))}${banner}<div class="cards loc-cards">${cards}</div></div>`;
+  }
+
+  // ---- results ----
+  private resultsView(): string {
+    const r = this.results;
+    if (!r) return '';
+    const p = r.payout;
+    const lines = p.lines.map((l) => `<div class="line"><span>${this.t('results.' + l.key)}</span><b>+${l.value}</b></div>`).join('');
+    const won = r.position === 1;
+    return `<div class="panel results">
+      <h2 class="${won && !r.failed ? 'win' : ''}">${r.failed ? this.t('results.failed') : won ? this.t('results.win') : this.t('results.lose')}</h2>
+      <div class="big-pos">${['time_attack', 'drift_trial', 'speed_run', 'delivery'].includes(r.mode) ? (r.mode === 'drift_trial' ? `${Math.round(r.score ?? 0)} ${r.medal ? ['', '🥉', '🥈', '🥇'][r.medal] : ''}` : '') : this.t('results.ordinal' + Math.min(4, r.position))}</div>
+      ${r.timeMedal && r.timeMedal.medal ? `<div class="bonus">${['', '🥉', '🥈', '🥇'][r.timeMedal.medal]} ${r.timeMedal.improved ? this.t('ui.newMedal') + (r.timeMedal.credits ? ` +${r.timeMedal.credits} ${this.t('ui.credits')}` : '') + (r.timeMedal.techParts ? ` +${r.timeMedal.techParts} ${this.t('ui.techParts')}` : '') : ''}</div>` : ''}
+      ${r.slip ? `<div class="bonus">${r.slip.won ? this.t('results.slipWon', { car: this.t('cars.' + r.slip.car + '.name') }) : this.t('results.slipLost') + ' −' + r.slip.stake}</div>` : ''}
+      <div class="line"><span>${this.t('results.time')}</span><b>${fmtTime(r.time)}${r.newBest ? ` <em>${this.t('ui.newBest')}</em>` : ''}</b></div>
+      <div class="line"><span>${this.t('results.bestLap')}</span><b>${fmtTime(r.bestLap)}</b></div>
+      <hr>${lines}
+      <div class="line"><span>${this.t('results.multiplier')}</span><b>×${p.multiplier.toFixed(2)}</b></div>
+      ${p.firstBoss ? `<div class="bonus">${this.t('results.bossFirst')}</div>` : ''}
+      ${r.daily ? `<div class="bonus">${this.t('ui.dailyClaimed')} +${r.daily.credits} ${this.t('ui.credits')} · +${r.daily.techParts} ${this.t('ui.techParts')} · ${this.t('ui.streak')} ${r.daily.streak}</div>` : r.dailyAttempt ? `<div class="hint">${this.t('ui.finishTop2')}</div>` : ''}
+      ${r.champ ? `<h3>${this.t('ui.standings')} · ${this.t('ui.round')} ${r.champ.round}/${r.champ.rounds}</h3><div class="board">${r.champ.standings.map((n, i) => `<span class="${n === 'YOU' ? 'me' : ''}">${i + 1}. ${n}</span>`).join('')}</div>${r.champ.finished ? `<div class="bonus">🏆 ${r.champ.trophy ? this.t('ui.' + r.champ.trophy) : '—'} · +${r.champ.credits} ${this.t('ui.credits')} · +${r.champ.techParts} ${this.t('ui.techParts')}</div>` : ''}` : ''}
+      ${r.achievements?.length ? `<div class="bonus">${r.achievements.map((a) => '🏆 ' + this.t('ach.' + a + '.name')).join(' · ')}</div>` : ''}
+      <div class="line total"><span>${this.t('results.total')}</span><b>+${p.credits.toLocaleString()} ${this.t('ui.credits')}${p.techParts ? ` · +${p.techParts} ${this.t('ui.techParts')}` : ''}</b></div>
+      <div class="menu-buttons row">
+        ${r.champ && !r.champ.finished ? `<button class="btn primary" data-act="startChamp" data-arg="${r.champ.id}">${this.t('ui.continueRound')} ${r.champ.round + 1}/${r.champ.rounds}</button>` : ''}
+        <button class="btn ${r.champ && !r.champ.finished ? '' : 'primary'}" data-act="retry">${this.t('ui.retry')}</button>
+        ${r.replayAvailable ? `<button class="btn" data-act="replay">▶ ${this.t('ui.replay')}</button>` : ''}
+        <button class="btn" data-act="nav" data-arg="garage">${this.t('ui.garage')}</button>
+        <button class="btn" data-act="nav" data-arg="locations">${this.t('ui.locations')}</button>
+        <button class="btn" data-act="quit">${this.t('ui.menu')}</button>
+      </div>
+    </div>`;
+  }
+
+  private pause(): string {
+    return `<div class="panel pause"><h2>${this.t('ui.paused')}</h2>
+      <div class="menu-buttons">
+        <button class="btn primary" data-act="resume">${this.t('ui.resume')}</button>
+        <button class="btn" data-act="retry">${this.t('ui.retry')}</button>
+        <button class="btn" data-act="sound">${this.t('ui.sound')}: ${this.host.save.data.muted ? this.t('ui.off') : this.t('ui.on')}</button>
+        <button class="btn" data-act="quit">${this.t('ui.quit')}</button>
+      </div></div>`;
+  }
+}
