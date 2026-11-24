@@ -1,8 +1,11 @@
 /** Biome presets: lighting, fog, surface physics and track layout. Each race happens in exactly one biome. */
 
 import type { GridRouteSpec } from '../world/gridRoute';
+import type { PolyVertex } from '../world/polyRoute';
+import { CIRCUIT, HIGHWAY, RALLY, switchback } from './layouts';
 
-export type BiomeId = 'neon_street' | 'harbor_docks' | 'downtown_day' | 'red_canyon' | 'coast_highway' | 'alpine_pass';
+export type BiomeId = 'neon_street' | 'harbor_docks' | 'downtown_day' | 'apex_circuit' | 'red_canyon' | 'coast_highway' | 'alpine_pass';
+export type LayoutKind = 'grid' | 'circuit' | 'highway' | 'rally' | 'mountain';
 export type CityStyle = 'neon' | 'harbor' | 'day';
 export type SurfaceKind = 'asphalt' | 'dirt' | 'snow';
 
@@ -15,6 +18,8 @@ export interface TrackShape {
   harmonics: [number, number, number][];
   /** Seed for scenery placement. */
   seed: number;
+  /** Authored polygon layout (replaces the harmonic blob). */
+  poly?: PolyVertex[];
 }
 
 export interface BiomePreset {
@@ -35,6 +40,10 @@ export interface BiomePreset {
   friction: number;
   surface: SurfaceKind;
   roadWidth: number;
+  /** What kind of road this is; decides the scenery and how the road is marked. */
+  layout: LayoutKind;
+  /** Marked lanes across the road (1 = a single centre dash). */
+  lanes: number;
   /** Width of the soft off-road strip between the road and the wall (per side). */
   shoulder: number;
   props: string[];
@@ -63,7 +72,7 @@ export interface BiomePreset {
   unlockedBy: BiomeId | null;
 }
 
-export const BIOME_ORDER: BiomeId[] = ['neon_street', 'harbor_docks', 'downtown_day', 'red_canyon', 'coast_highway', 'alpine_pass'];
+export const BIOME_ORDER: BiomeId[] = ['neon_street', 'harbor_docks', 'downtown_day', 'apex_circuit', 'red_canyon', 'coast_highway', 'alpine_pass'];
 
 export const BIOME_PRESETS: Record<BiomeId, BiomePreset> = {
   neon_street: {
@@ -82,6 +91,8 @@ export const BIOME_PRESETS: Record<BiomeId, BiomePreset> = {
     friction: 1.0,
     surface: 'asphalt',
     roadWidth: 12,
+    layout: 'grid',
+    lanes: 2,
     shoulder: 2.5,
     props: ['cyberBuilding', 'neonArch', 'streetLamp'],
     trackShape: {
@@ -124,6 +135,8 @@ export const BIOME_PRESETS: Record<BiomeId, BiomePreset> = {
     friction: 0.93,
     surface: 'asphalt',
     roadWidth: 14,
+    layout: 'grid',
+    lanes: 2,
     shoulder: 2.5,
     props: [],
     trackShape: { radius: 250, stretchX: 1.3, harmonics: [], seed: 61 },
@@ -161,6 +174,8 @@ export const BIOME_PRESETS: Record<BiomeId, BiomePreset> = {
     friction: 0.98,
     surface: 'asphalt',
     roadWidth: 13,
+    layout: 'grid',
+    lanes: 2,
     shoulder: 3,
     props: [],
     trackShape: { radius: 250, stretchX: 1.3, harmonics: [], seed: 71 },
@@ -182,6 +197,37 @@ export const BIOME_PRESETS: Record<BiomeId, BiomePreset> = {
     bloom: 0.22,
     unlockedBy: 'harbor_docks',
   },
+  apex_circuit: {
+    id: 'apex_circuit',
+    skyColor: 0x3a8cff,
+    horizonColor: 0xcfe8ff,
+    fog: { color: 0xbfd8ef, density: 0.0019 },
+    ambientLight: { color: 0xf0f4ff, intensity: 1.25 },
+    sunLight: { color: 0xfff1d6, intensity: 2.4, position: [70, 110, 50] },
+    roadColor: 0x34363e,
+    groundColor: 0x4f8a3f,
+    shoulderColor: 0xc9a86a,
+    wallColor: 0x20242c,
+    wallGlow: null,
+    laneColor: 0xffffff,
+    friction: 1.0,
+    surface: 'asphalt',
+    roadWidth: 17,
+    layout: 'circuit',
+    lanes: 1,
+    shoulder: 11,
+    props: ['tireWall', 'grandstand', 'adBoard'],
+    trackShape: { radius: 300, stretchX: 1, harmonics: [], seed: 83, poly: CIRCUIT },
+    tunnels: [],
+    driftZones: [[0.4, 0.5], [0.72, 0.8]],
+    fxColor: 0xf0f0f0,
+    parTime: 275,
+    weather: 'none',
+    traffic: { cars: 0, cross: 0, oncoming: 0 },
+    bombSpeeds: [19, 22, 24.5],
+    bloom: 0.2,
+    unlockedBy: 'coast_highway',
+  },
   red_canyon: {
     id: 'red_canyon',
     skyColor: 0xff8c42,
@@ -197,22 +243,25 @@ export const BIOME_PRESETS: Record<BiomeId, BiomePreset> = {
     laneColor: 0xf2c590,
     friction: 0.78,
     surface: 'dirt',
-    roadWidth: 20,
-    shoulder: 7,
+    roadWidth: 14,
+    layout: 'rally',
+    lanes: 2,
+    shoulder: 6,
     props: ['mesaRock', 'cactus', 'woodenSign'],
     trackShape: {
       radius: 220,
       stretchX: 1.35,
       harmonics: [[2, 0.308, 0.3], [3, 0.22, 1.7], [4, 0.099, 0.4]],
       seed: 23,
+      poly: RALLY,
     },
     tunnels: [],
     driftZones: [],
     fxColor: 0xe0a070,
-    parTime: 165,
+    parTime: 290,
     weather: 'dust',
     traffic: { cars: 0, cross: 0, oncoming: 0 },
-    bombSpeeds: [30, 34, 38],
+    bombSpeeds: [18, 21, 23.5],
     bloom: 0.35,
     unlockedBy: 'neon_street',
   },
@@ -231,22 +280,25 @@ export const BIOME_PRESETS: Record<BiomeId, BiomePreset> = {
     laneColor: 0xffffff,
     friction: 0.96,
     surface: 'asphalt',
-    roadWidth: 18,
-    shoulder: 6,
-    props: ['palmTree', 'beachUmbrella', 'highwayArch'],
+    roadWidth: 21,
+    layout: 'highway',
+    lanes: 3,
+    shoulder: 5,
+    props: ['palmTree', 'beachUmbrella', 'highwayArch', 'overpass'],
     trackShape: {
       radius: 250,
       stretchX: 1.95,
       harmonics: [[2, 0.17, 0.9], [3, 0.102, 0.2], [5, 0.034, 1.0]],
       seed: 37,
+      poly: HIGHWAY,
     },
-    tunnels: [[0.12, 0.2]],
+    tunnels: [[0.04, 0.12]],
     driftZones: [],
     fxColor: 0xffffff,
-    parTime: 205,
+    parTime: 195,
     weather: 'none',
-    traffic: { cars: 5, cross: 0, oncoming: 0 },
-    bombSpeeds: [36, 40, 43],
+    traffic: { cars: 9, cross: 0, oncoming: 0 },
+    bombSpeeds: [30, 34, 38],
     bloom: 0.45,
     unlockedBy: 'red_canyon',
   },
@@ -265,7 +317,9 @@ export const BIOME_PRESETS: Record<BiomeId, BiomePreset> = {
     laneColor: 0xf2f6f7,
     friction: 0.65,
     surface: 'snow',
-    roadWidth: 15,
+    roadWidth: 13,
+    layout: 'mountain',
+    lanes: 2,
     shoulder: 5,
     props: ['pineTree', 'snowRock', 'woodenGuardrail'],
     trackShape: {
@@ -273,14 +327,15 @@ export const BIOME_PRESETS: Record<BiomeId, BiomePreset> = {
       stretchX: 1.2,
       harmonics: [[3, 0.16, 2.4], [4, 0.12, 0.8], [6, 0.056, 1.6], [2, 0.112, 0.1]],
       seed: 53,
+      poly: switchback(),
     },
     tunnels: [],
     driftZones: [],
     fxColor: 0xffffff,
-    parTime: 165,
+    parTime: 295,
     weather: 'snow',
     traffic: { cars: 0, cross: 0, oncoming: 0 },
-    bombSpeeds: [20, 23, 26],
+    bombSpeeds: [17, 20, 23],
     bloom: 0.3,
     unlockedBy: 'coast_highway',
   },

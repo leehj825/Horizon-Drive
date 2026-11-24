@@ -3,7 +3,7 @@ import { applyCar, CARS, type CarId } from './cars';
 import { dailyChallenge, todayStr, type DailyChallenge } from './challenges';
 import { BIOME_ORDER } from './biomes';
 import { EQUIPMENT, modsFor, type EquipmentId } from './equipment';
-import type { Difficulty, Perk, SaveData } from './saveState';
+import type { Difficulty, Perk, SaveData, TrafficSetting } from './saveState';
 import { MAX_LOCATION_LEVEL, MAX_UPGRADE, locationCost, payoutMultiplier, tunedStats, upgradeCost, type UpgradeId } from './upgrades';
 
 export type RaceMode = 'time_attack' | 'duel' | 'circuit' | 'elimination' | 'drift_trial' | 'speed_run' | 'delivery' | 'pink_slip' | 'boss';
@@ -76,7 +76,16 @@ export function pinkSlipPrize(save: SaveData): { car: CarId; stake: number } | n
   return null;
 }
 
+/** Street traffic options: density multiplier and payout multiplier. */
+export const TRAFFIC: Record<TrafficSetting, { mul: number; pay: number }> = {
+  off: { mul: 0, pay: 0.8 },
+  low: { mul: 0.5, pay: 0.9 },
+  normal: { mul: 1, pay: 1 },
+  high: { mul: 1.5, pay: 1.1 },
+};
+
 export interface RaceStats {
+  traffic?: TrafficSetting;
   /** Conditions/random streets do not count for records and medals. */
   noRecords?: boolean;
   score?: number;
@@ -89,7 +98,7 @@ export interface RaceStats {
   /** Settings difficulty (defaults to normal). */
   difficulty?: Difficulty;
   wrecks?: number;
-  jumps?: number;
+  gates?: number;
   biome: BiomeId;
   mode: RaceMode;
   /** 1-based finishing position (1 for time attack). */
@@ -99,7 +108,6 @@ export interface RaceStats {
   driftScore: number;
   perfectDrifts: number;
   coins: number;
-  jumpBonus: number;
   nearMisses: number;
   smashes: number;
 }
@@ -151,11 +159,10 @@ export function computePayout(save: SaveData, r: RaceStats): Payout {
   if (r.driftScore > 0 && r.mode !== 'drift_trial') lines.push({ key: 'payDrift', value: Math.floor(r.driftScore / 12) });
   if (r.perfectDrifts > 0) lines.push({ key: 'payPerfect', value: r.perfectDrifts * 15 });
   if (r.coins > 0) lines.push({ key: 'payCoins', value: r.coins * 5 });
-  if (r.jumpBonus > 0) lines.push({ key: 'payJumps', value: r.jumpBonus });
   if (r.nearMisses > 0) lines.push({ key: 'payNearMiss', value: Math.min(25, r.nearMisses) * 10 });
   if (r.smashes > 0) lines.push({ key: 'paySmash', value: Math.min(40, r.smashes) * 2 });
   const base = lines.reduce((s, l) => s + l.value, 0);
-  const multiplier = payoutMultiplier(level) * DIFFICULTY[r.difficulty ?? 'normal'].pay * (perkFor(save, r.biome) === 'sponsor' ? 1.2 : 1);
+  const multiplier = payoutMultiplier(level) * DIFFICULTY[r.difficulty ?? 'normal'].pay * TRAFFIC[r.traffic ?? 'normal'].pay * (perkFor(save, r.biome) === 'sponsor' ? 1.2 : 1);
   let credits = Math.round(base * multiplier);
   let techParts = 0;
   let firstBoss = false;
@@ -286,7 +293,7 @@ export function recordStats(save: SaveData, r: RaceStats, creditsEarned: number)
   st.smashes += r.smashes;
   st.coins += r.coins;
   st.wrecks += r.wrecks ?? 0;
-  st.jumps += r.jumps ?? 0;
+  st.gates += r.gates ?? 0;
   st.earned += creditsEarned;
 }
 

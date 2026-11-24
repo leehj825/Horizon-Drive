@@ -3,7 +3,7 @@ const { chromium } = require('playwright');
 (async () => {
   const [,, base = 'http://localhost:5199/'] = process.argv;
   const errs = [];
-  for (const spec of [['neon_street', 'circuit', 4], ['harbor_docks', 'elimination', 4], ['downtown_day', 'delivery', 4], ['coast_highway', 'time_attack', 3]]) {
+  for (const spec of [['apex_circuit', 'circuit', 3], ['coast_highway', 'circuit', 4], ['alpine_pass', 'elimination', 2], ['red_canyon', 'time_attack', 2]]) {
     const browser = await chromium.launch({ args: ['--use-gl=swiftshader', '--enable-webgl', '--ignore-gpu-blocklist', '--no-sandbox'] });
     const page = await browser.newPage({ viewport: { width: 640, height: 360 } });
     page.on('pageerror', (e) => errs.push(spec[0] + ' PAGEERROR: ' + e.message));

@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import type { BiomePreset } from '../data/biomes';
 import { buildGridRoute, type BuiltRoute } from './gridRoute';
 import { alleyCoords, type Alley } from './alleys';
+import { buildPolyRoute } from './polyRoute';
 
 export interface TrackQuery {
   idx: number;
@@ -50,6 +51,10 @@ export class Track {
     if (preset.route) {
       route = buildGridRoute(preset.route);
       pts = route.points.map((p) => new THREE.Vector3(p.x, 0, p.z));
+    } else if (preset.trackShape.poly) {
+      pts = buildPolyRoute(preset.trackShape.poly).points.map((p) => new THREE.Vector3(p.x, 0, p.z));
+      pts = new THREE.CatmullRomCurve3(pts, true, 'centripetal').getSpacedPoints(samples);
+      pts.pop();
     } else {
       const sh = preset.trackShape;
       const ctrl: THREE.Vector3[] = [];

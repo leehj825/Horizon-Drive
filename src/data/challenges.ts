@@ -16,6 +16,8 @@ export const CHAMPIONSHIPS: Championship[] = [
   { id: 'open_road_cup', biomes: ['red_canyon', 'coast_highway', 'alpine_pass'], rivals: ['Rook', 'Vex', 'Juno'], rewards: { gold: 4000, silver: 2400, bronze: 1200 }, techParts: { gold: 6, silver: 3, bronze: 1 } },
 ];
 
+CHAMPIONSHIPS.push({ id: 'grand_prix', biomes: ['apex_circuit', 'coast_highway', 'alpine_pass'], rivals: ['Blitz', 'Mako', 'Rex'], rewards: { gold: 5500, silver: 3200, bronze: 1600 }, techParts: { gold: 8, silver: 4, bronze: 2 } });
+
 export const CHAMP_POINTS = [10, 6, 3, 1];
 
 export function champById(id: string): Championship {

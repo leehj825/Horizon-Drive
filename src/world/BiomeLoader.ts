@@ -126,7 +126,7 @@ export function loadBiomeScene(scene: THREE.Scene, biomeId: BiomeId, locationLev
   root.add(ambient, hemi, sun, sun.target);
 
   const track = new Track(preset, 900, !!opts.reverse);
-  if (track.city && featuresFor(locationLevel).jumps) track.setAlleys(findAlleys(track));
+  if (track.city && featuresFor(locationLevel).shortcuts) track.setAlleys(findAlleys(track));
   const built: BuiltTrack = buildTrack(track, preset, locationLevel, opts);
   root.add(built.group);
   const coins = new CoinField(track, built.bonusCoins);

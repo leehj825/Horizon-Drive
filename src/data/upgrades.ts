@@ -71,7 +71,7 @@ export type LocationLevels = Record<BiomeId, number>;
 export interface LocationFeatures {
   sponsors: boolean;
   boostPads: boolean;
-  jumps: boolean;
+  shortcuts: boolean;
   festival: boolean;
   payout: number;
 }
@@ -79,7 +79,7 @@ export function featuresFor(level: number): LocationFeatures {
   return {
     sponsors: level >= 2,
     boostPads: level >= 3,
-    jumps: level >= 4,
+    shortcuts: level >= 4,
     festival: level >= 5,
     payout: payoutMultiplier(level),
   };

@@ -19,7 +19,7 @@ export const ACHIEVEMENTS: Achievement[] = [
   { id: 'closeCalls', reward: 600, progress: stat('nearMisses', 50) },
   { id: 'smasher', reward: 400, progress: stat('smashes', 200) },
   { id: 'demolition', reward: 500, progress: stat('wrecks', 20) },
-  { id: 'airtime', reward: 400, progress: stat('jumps', 10) },
+  { id: 'gateRunner', reward: 400, progress: stat('gates', 30) },
   { id: 'goldDigger', reward: 500, progress: stat('coins', 500) },
   { id: 'collector', reward: 1500, progress: (s) => [s.carsOwned.length, CAR_IDS.length] },
   { id: 'bossSlayer', reward: 1200, progress: (s) => [Math.min(1, s.bossesBeaten.length), 1] },

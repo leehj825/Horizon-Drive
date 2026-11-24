@@ -16,14 +16,13 @@ export interface ControlState {
 
 export const NEUTRAL: ControlState = { throttle: 0, steer: 0, handbrake: false, nitro: false };
 
-export interface Rect { x: number; z: number; dx: number; dz: number; w: number; l: number }
-export interface Ramp extends Rect { h: number }
-export interface TrackFeatures { ramps: Ramp[]; pads: Rect[] }
-export const NO_FEATURES: TrackFeatures = { ramps: [], pads: [] };
+export interface Rect { x: number; z: number; dx: number; dz: number; w: number; l: number; /** nitro gate: refills nitro instead of a pure speed burst */ gate?: boolean }
+export interface TrackFeatures { pads: Rect[] }
+export const NO_FEATURES: TrackFeatures = { pads: [] };
 
 export interface CarEvents {
   onWall?: (strength: number) => void;
-  onLand?: (distance: number) => void;
+  onGate?: () => void;
   onPad?: () => void;
   onPerfectDrift?: (score: number) => void;
   onDriftScore?: (points: number, multiplier: number) => void;
@@ -42,7 +41,6 @@ export interface CarFx {
 const NITRO_BOOST = 1.5;
 const NITRO_SPEED = 1.38;
 const REVERSE_MAX = 12;
-const GRAVITY = 24;
 const WALL_BOUNCE = 0.25;
 
 /**
@@ -70,7 +68,6 @@ export class CarController {
   /** Total drift score of this race. */
   driftScore = 0;
   perfectDrifts = 0;
-  jumps = 0;
   /** Cumulative distance along the lap direction, unwrapped (negative on the grid). */
   progress = 0;
   tq: TrackQuery = { idx: 0, s: 0, lat: 0, tx: 0, tz: 1 };
@@ -116,9 +113,6 @@ export class CarController {
   private roll = 0;
   private pitch = 0;
   private prevFwd = 0;
-  private airStartX = 0;
-  private airStartZ = 0;
-  private lastRampVy = 0;
 
   constructor(
     readonly track: Track,
@@ -159,7 +153,7 @@ export class CarController {
     this.nitroActive = false;
     this.boostTimer = 0;
     this.driftTime = 0; this.driftPoints = 0; this.driftScore = 0; this.perfectDrifts = 0;
-    this.jumps = 0; this.wallHits = 0; this.chain = 0; this.chainT = 0; this.draft = 0; this.warned = this.damage >= 0.8 ? 2 : this.damage >= 0.5 ? 1 : 0;
+    this.wallHits = 0; this.chain = 0; this.chainT = 0; this.draft = 0; this.warned = this.damage >= 0.8 ? 2 : this.damage >= 0.5 ? 1 : 0;
     this.syncModel(0);
   }
 
@@ -260,7 +254,6 @@ export class CarController {
     this.position.z += this.vz * dt;
 
     if (!this.free) this.collideWalls(dt);
-    this.vertical(dt);
     if (!this.free) this.padCheck();
 
     fx_ = Math.sin(this.heading); fz_ = Math.cos(this.heading);
@@ -419,6 +412,14 @@ export class CarController {
       const along = rx * p.dx + rz * p.dz;
       const lat = -rx * p.dz + rz * p.dx;
       if (Math.abs(lat) < p.w / 2 && Math.abs(along) < p.l / 2) {
+        if (p.gate) {
+          // nitro gate: a burst of nitro and a short boost
+          this.boostTimer = Math.max(this.boostTimer, 0.9);
+          this.padCooldown = 1.5;
+          this.nitro = Math.min(1, this.nitro + 0.35);
+          this.events.onGate?.();
+          return;
+        }
         this.boostTimer = 1.6;
         this.padCooldown = 1.0;
         const fx_ = Math.sin(this.heading), fz_ = Math.cos(this.heading);
@@ -427,52 +428,6 @@ export class CarController {
         this.vx += fx_ * add; this.vz += fz_ * add;
         this.events.onPad?.();
         return;
-      }
-    }
-  }
-
-  /** Ramps: height field + ballistic flight. */
-  private vertical(dt: number): void {
-    let ground = 0;
-    let slope = 0;
-    for (const r of this.features.ramps) {
-      const rx = this.position.x - r.x;
-      const rz = this.position.z - r.z;
-      const along = rx * r.dx + rz * r.dz;
-      const lat = Math.abs(-rx * r.dz + rz * r.dx);
-      if (lat < r.w / 2 && along > -r.l / 2 && along < r.l / 2) {
-        const t = (along + r.l / 2) / r.l;
-        ground = Math.max(ground, r.h * t);
-        slope = r.h / r.l;
-      }
-    }
-    const y = this.position.y;
-    if (this.airborne) {
-      this.vy -= GRAVITY * dt;
-      this.position.y += this.vy * dt;
-      if (this.position.y <= 0) {
-        const landSpeed = -this.vy;
-        this.position.y = 0;
-        this.vy = 0;
-        this.airborne = false;
-        const dist = Math.hypot(this.position.x - this.airStartX, this.position.z - this.airStartZ);
-        this.jumps++;
-        this.events.onLand?.(dist);
-        if (landSpeed > 10) this.hurt((landSpeed - 10) * 0.004);
-        const slow = Math.min(0.28, landSpeed * 0.02) * (1 - this.stats.landSoak);
-        this.vx *= 1 - slow; this.vz *= 1 - slow;
-      }
-    } else if (ground > 0 || y > 0.001) {
-      if (ground > 0) {
-        this.lastRampVy = slope * (this.vx * Math.sin(this.heading) + this.vz * Math.cos(this.heading));
-        this.position.y = ground;
-      } else if (y > 0.3 && this.lastRampVy > 1) {
-        this.airborne = true;
-        this.vy = this.lastRampVy;
-        this.airStartX = this.position.x;
-        this.airStartZ = this.position.z;
-      } else {
-        this.position.y = 0;
       }
     }
   }
@@ -486,9 +441,7 @@ export class CarController {
     const accel = dt > 0 ? (this.forwardSpeed - this.prevFwd) / dt : 0;
     this.prevFwd = this.forwardSpeed;
     const targetRoll = THREE.MathUtils.clamp(-this.lateralSpeed * 0.012, -0.12, 0.12);
-    let targetPitch = THREE.MathUtils.clamp(-accel * 0.002, -0.06, 0.06);
-    if (this.airborne) targetPitch = THREE.MathUtils.clamp(-this.vy * 0.03, -0.35, 0.35);
-    else if (this.position.y > 0.05) targetPitch = -0.3;
+    const targetPitch = THREE.MathUtils.clamp(-accel * 0.002, -0.06, 0.06);
     const k = 1 - Math.exp(-dt * 8);
     this.roll += (targetRoll - this.roll) * k;
     this.pitch += (targetPitch - this.pitch) * k;

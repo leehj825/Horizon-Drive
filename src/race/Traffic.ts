@@ -47,6 +47,8 @@ export class Traffic {
 
   constructor(private world: BiomeWorld, private parent: THREE.Object3D | null, private intersections: Intersection[], opts: { countMul?: number; oncoming?: number | null } = {}) {
     this.rng = mulberry32(world.preset.trackShape.seed * 31 + 7);
+    // wide multi-lane roads (highway): cars fill every lane, all travelling the same way
+    if (world.preset.lanes >= 3) { const n = world.preset.lanes; this.lanes = Array.from({ length: n }, (_, k) => -1 + (2 * k + 1) / n).map((f) => f * 0.9); }
     const n = Math.round(world.preset.traffic.cars * (opts.countMul ?? 1));
     const oncomingShare = opts.oncoming ?? world.preset.traffic.oncoming;
     const L = world.track.length;
@@ -73,11 +75,12 @@ export class Traffic {
     const kind = KINDS[Math.floor(this.rng() * KINDS.length)];
     const color = kind === 'taxi' ? 0xf0c020 : BODY_COLORS[Math.floor(this.rng() * BODY_COLORS.length)];
     const car = new CarController(w.track, { ...BASE_STATS }, NO_MODS, this.model(kind, color));
-    car.features = { ramps: [], pads: [] };
+    car.features = { pads: [] };
     car.roadGripMul = w.gripMul;
     car.placeOnTrack(s, lane);
     if (oncoming) car.heading += Math.PI;
-    const skill = 0.27 + this.rng() * 0.2;
+    // highway traffic moves much faster than city traffic
+    const skill = w.preset.lanes >= 3 ? 0.55 + this.rng() * 0.2 : 0.27 + this.rng() * 0.2;
     const ai = new AIDriver(skill, lane);
     ai.avoid = 'brake';
     ai.reverse = oncoming;

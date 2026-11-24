@@ -10,6 +10,7 @@ const MAJOR = [0, 2, 4, 5, 7, 9, 11];
 const THEMES: Record<string, Theme> = {
   menu: { bpm: 96, root: 45, scale: MINOR, prog: [0, 5, 2, 6], arp: [0, 2, 4, 2, 7, 4, 2, 4], swing: 0 },
   neon_street: { bpm: 122, root: 45, scale: MINOR, prog: [0, 5, 2, 6], arp: [0, 2, 4, 7, 4, 2, 7, 9], swing: 0 },
+  apex_circuit: { bpm: 132, root: 47, scale: MINOR, prog: [0, 3, 5, 4], arp: [0, 2, 4, 7, 9, 7, 4, 2], swing: 0 },
   red_canyon: { bpm: 104, root: 50, scale: DORIAN, prog: [0, 3, 5, 3], arp: [0, 4, 2, 4, 7, 4, 2, 0], swing: 0.12 },
   coast_highway: { bpm: 126, root: 48, scale: MAJOR, prog: [0, 4, 5, 3], arp: [0, 2, 4, 2, 7, 9, 7, 4], swing: 0 },
   alpine_pass: { bpm: 98, root: 52, scale: MINOR, prog: [0, 6, 5, 4], arp: [0, 4, 7, 4, 9, 7, 4, 2], swing: 0.08 },

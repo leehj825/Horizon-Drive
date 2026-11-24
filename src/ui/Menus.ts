@@ -12,7 +12,7 @@ import { ACHIEVEMENTS } from '../data/achievements';
 import { CHAMPIONSHIPS, CHAMP_POINTS, champProgress, champUnlocked, dailyStatus, type RoundResult } from '../data/challenges';
 import { choosePerk, collectIncome, incomeReady, INCOME_CAP_HOURS, INCOME_PER_LEVEL_HOUR, MEDAL_FACTORS, PERK_CHANGE_COST, perkFor, repairCar, repairCost, todaysChallenge } from '../data/progression';
 import type { Perk } from '../data/saveState';
-import type { Difficulty, QualitySetting, Settings } from '../data/saveState';
+import type { Difficulty, QualitySetting, Settings, TrafficSetting } from '../data/saveState';
 
 export type Screen = 'none' | 'main' | 'race' | 'garage' | 'locations' | 'results' | 'pause' | 'settings' | 'achievements';
 
@@ -150,6 +150,7 @@ export class Menus {
       case 'resetChamp': if (confirm(this.t('ui.resetConfirm'))) { delete d.champs[arg]; save.save(); } return;
       case 'startDaily': this.host.startDaily(); return;
       case 'setDiff': d.settings.difficulty = arg as Difficulty; sfx.click(); save.save(); return;
+      case 'setTraffic': d.settings.traffic = arg as TrafficSetting; sfx.click(); save.save(); return;
       case 'setQuality': d.settings.quality = arg as QualitySetting; sfx.click(); save.save(); this.host.applySettings(); return;
       case 'replay': this.host.startReplay(); return;
       case 'perk': { const r = choosePerk(d, (arg.split(':')[0] as BiomeId), arg.split(':')[1] as Perk); if (r === 'ok') { sfx.buy(); save.save(); if (arg.split(':')[0] === d.selectedBiome) this.host.previewBiome(d.selectedBiome); } return; }
@@ -262,6 +263,7 @@ export class Menus {
       <h3>${this.t('ui.selectLocation')}</h3><div class="cards">${cards}</div>
       <h3>${this.t('ui.selectEvent')}</h3><div class="cards">${modeBtns}</div>
       <div class="meta">${this.t('ui.par')} ${fmtTime(p.parTime)}${ghost ? ' · ' + ghost : ''}${rec.length ? `<br><span class="rec">★ ${this.t('ui.recommended')}: ${rec.join(', ')}</span>` : ''}</div>
+      <h3>${this.t('ui.traffic')}</h3><div class="seg">${(['off', 'low', 'normal', 'high'] as const).map((tv) => `<button class="btn sm ${d.settings.traffic === tv ? 'sel' : ''}" data-act="setTraffic" data-arg="${tv}">${this.t('ui.traffic' + tv[0].toUpperCase() + tv.slice(1))}</button>`).join('')}</div>
       <h3>${this.t('ui.conditions')}</h3>
       <div class="seg">${(['default', 'rain', 'fog', 'night'] as const).map((c) => `<button class="btn sm ${this.cond === c ? 'sel' : ''}" data-act="cond" data-arg="${c}">${this.t('ui.cond_' + c)}</button>`).join('')}
         <button class="btn sm ${this.reverse ? 'sel' : ''}" data-act="toggleReverse">↺ ${this.t('ui.reverse')}</button>
@@ -319,6 +321,7 @@ export class Menus {
     const range = (key: keyof Settings, label: string, min: number, max: number, step: number) => `<label class="set"><span>${label}</span><input type="range" min="${min}" max="${max}" step="${step}" value="${st[key]}" data-set="${key}"><b data-val="${key}">${this.fmtSetting(key, st[key] as number)}</b></label>`;
     return `<div class="panel">${this.header(this.t('ui.settings'))}
       <h3>${this.t('ui.difficulty')}</h3>${seg('setDiff', st.difficulty, [['easy', this.t('ui.easy')], ['normal', this.t('ui.normal')], ['hard', this.t('ui.hard')]])}<p class="hint">${this.t('ui.diffHint')}</p>
+      <h3>${this.t('ui.traffic')}</h3>${seg('setTraffic', st.traffic, [['off', this.t('ui.trafficOff')], ['low', this.t('ui.trafficLow')], ['normal', this.t('ui.trafficNormal')], ['high', this.t('ui.trafficHigh')]])}<p class="hint">${this.t('ui.trafficHint')}</p>
       <h3>${this.t('ui.graphics')}</h3>${seg('setQuality', st.quality, [['auto', this.t('ui.auto')], ['high', this.t('ui.high')], ['low', this.t('ui.low')]])}
       <h3>${this.t('ui.settings')}</h3>
       ${range('steer', this.t('ui.steerSens'), 0.5, 1.6, 0.05)}${range('fov', this.t('ui.fovSet'), -10, 14, 1)}${range('shake', this.t('ui.camShake'), 0, 1.5, 0.1)}${range('volume', this.t('ui.volume'), 0, 1, 0.05)}${range('touchScale', this.t('ui.touchSize'), 0.7, 1.4, 0.05)}

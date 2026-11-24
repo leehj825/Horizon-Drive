@@ -51,14 +51,14 @@ assert.deepEqual(locationCost(1), { credits: 800, techParts: 0 });
 // features per level (doc table)
 assert.deepEqual(Object.values(featuresFor(1)).slice(0, 4), [false, false, false, false]);
 assert.ok(featuresFor(2).sponsors && !featuresFor(2).boostPads);
-assert.ok(featuresFor(3).boostPads && !featuresFor(3).jumps);
-assert.ok(featuresFor(4).jumps && !featuresFor(4).festival);
+assert.ok(featuresFor(3).boostPads && !featuresFor(3).shortcuts);
+assert.ok(featuresFor(4).shortcuts && !featuresFor(4).festival);
 assert.ok(featuresFor(5).festival);
 assert.equal(payoutMultiplier(1), 1); assert.equal(payoutMultiplier(2), 1.25); assert.equal(payoutMultiplier(5), 2);
 
 // payouts
 const s2 = new SaveState().data;
-const r = { biome: 'neon_street' as const, mode: 'circuit' as const, position: 1, time: 150, driftScore: 1200, perfectDrifts: 2, coins: 10, jumpBonus: 0, nearMisses: 0, smashes: 0 };
+const r = { biome: 'neon_street' as const, mode: 'circuit' as const, position: 1, time: 150, driftScore: 1200, perfectDrifts: 2, coins: 10, nearMisses: 0, smashes: 0 };
 const p = computePayout(s2, r);
 assert.equal(p.credits, 550 + 100 + 30 + 50);
 assert.equal(p.techParts, 1);
@@ -131,7 +131,7 @@ assert.equal(as.credits, 600 + ACHIEVEMENTS.find((a) => a.id === 'firstWin')!.re
 // new modes
 import { DRIFT_MEDALS, driftMedal, pinkSlipPrize } from '../src/data/progression';
 const nm = new SaveState().data;
-const base = { biome: 'neon_street' as const, position: 1, time: 100, driftScore: 0, perfectDrifts: 0, coins: 0, jumpBonus: 0, nearMisses: 0, smashes: 0 };
+const base = { biome: 'neon_street' as const, position: 1, time: 100, driftScore: 0, perfectDrifts: 0, coins: 0, nearMisses: 0, smashes: 0 };
 const dt1 = computePayout(nm, { ...base, mode: 'drift_trial', score: 2500 });
 assert.equal(dt1.medal, 2); assert.equal(dt1.techParts, 1);
 assert.equal(driftMedal(DRIFT_MEDALS[2]), 3);
@@ -187,6 +187,14 @@ const m2 = awardMedal(md, 'neon_street', 200);
 assert.deepEqual([m2.medal, m2.credits, m2.techParts], [3, 1400, 3], 'pays silver + gold on top of bronze');
 assert.equal(awardMedal(md, 'neon_street', 200).improved, false);
 
+// traffic option scales the payout
+import { TRAFFIC } from '../src/data/progression';
+const noTraffic = computePayout(nm, { ...base, mode: 'circuit', position: 1, traffic: 'off' });
+const heavyTraffic = computePayout(nm, { ...base, mode: 'circuit', position: 1, traffic: 'high' });
+const normalTraffic = computePayout(nm, { ...base, mode: 'circuit', position: 1 });
+assert.ok(noTraffic.credits < normalTraffic.credits && normalTraffic.credits < heavyTraffic.credits);
+assert.equal(TRAFFIC.off.mul, 0);
+
 // damage and repair
 const dm = new SaveState().data;
 assert.equal(repairCar(dm), 'owned');
@@ -208,7 +216,7 @@ const i = new I18n('en');
 assert.equal(i.t('ui.play'), 'RACE');
 i.setLanguage('ko');
 assert.equal(i.t('ui.play'), '레이스 시작');
-assert.equal(i.t('ui.jump', { n: 25 }), '점프! +25 CR');
+assert.equal(i.t('ui.nearMiss', { n: 25 }), '아슬아슬! +25');
 assert.equal(i.t('nope.key'), 'nope.key');
 for (const b of BIOME_ORDER) assert.ok(i.t(`biomes.${b}.name`) !== `biomes.${b}.name`);
 

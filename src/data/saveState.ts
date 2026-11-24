@@ -12,11 +12,14 @@ export const GHOST_HZ = 20;
 
 export type Difficulty = 'easy' | 'normal' | 'hard';
 export type QualitySetting = 'auto' | 'high' | 'low';
+export type TrafficSetting = 'off' | 'low' | 'normal' | 'high';
 
 export type Perk = 'sponsor' | 'racing' | 'safety';
 
 export interface Settings {
   difficulty: Difficulty;
+  /** Street traffic density in free races. */
+  traffic: TrafficSetting;
   /** Steering response multiplier. */
   steer: number;
   /** Extra field of view in degrees. */
@@ -39,7 +42,7 @@ export interface ChampProgress {
 
 export interface Stats {
   races: number; wins: number; nearMisses: number; perfectDrifts: number; smashes: number;
-  wrecks: number; jumps: number; coins: number; dailies: number; champsWon: number; earned: number;
+  wrecks: number; gates: number; coins: number; dailies: number; champsWon: number; earned: number;
 }
 
 export interface SaveData {
@@ -111,12 +114,12 @@ function fresh(): SaveData {
     car: 'coupe',
     carsOwned: ['coupe'],
     paint: 0,
-    settings: { difficulty: 'normal', steer: 1, fov: 0, quality: 'auto', touchScale: 1, volume: 1, shake: 1 },
+    settings: { difficulty: 'normal', traffic: 'normal', steer: 1, fov: 0, quality: 'auto', touchScale: 1, volume: 1, shake: 1 },
     champs: {},
     daily: { date: '', done: false },
     dailyStreak: 0,
     lastDailyDate: '',
-    stats: { races: 0, wins: 0, nearMisses: 0, perfectDrifts: 0, smashes: 0, wrecks: 0, jumps: 0, coins: 0, dailies: 0, champsWon: 0, earned: 0 },
+    stats: { races: 0, wins: 0, nearMisses: 0, perfectDrifts: 0, smashes: 0, wrecks: 0, gates: 0, coins: 0, dailies: 0, champsWon: 0, earned: 0 },
     achievements: [],
     damage: 0,
     perks: {},

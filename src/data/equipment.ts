@@ -12,9 +12,9 @@ export interface EquipmentDef {
 }
 
 export const EQUIPMENT: Record<EquipmentId, EquipmentDef> = {
-  susp_street: { id: 'susp_street', slot: 'suspension', cost: 400, recommended: ['neon_street', 'harbor_docks', 'downtown_day', 'coast_highway'] },
+  susp_street: { id: 'susp_street', slot: 'suspension', cost: 400, recommended: ['neon_street', 'harbor_docks', 'downtown_day', 'apex_circuit', 'coast_highway'] },
   susp_offroad: { id: 'susp_offroad', slot: 'suspension', cost: 400, recommended: ['red_canyon', 'alpine_pass'] },
-  boost_twin: { id: 'boost_twin', slot: 'booster', cost: 600, recommended: ['coast_highway'] },
+  boost_twin: { id: 'boost_twin', slot: 'booster', cost: 600, recommended: ['coast_highway', 'apex_circuit'] },
   boost_drift: { id: 'boost_drift', slot: 'booster', cost: 600, recommended: ['neon_street', 'harbor_docks', 'alpine_pass'] },
   util_magnet: { id: 'util_magnet', slot: 'utility', cost: 500, recommended: ['all'] },
   util_bumper: { id: 'util_bumper', slot: 'utility', cost: 500, recommended: ['duel', 'circuit'] },

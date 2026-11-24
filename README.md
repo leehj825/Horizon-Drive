@@ -3,7 +3,7 @@
 Stylized arcade racing + light tycoon progression, built with **Three.js + TypeScript + Vite**.
 Every race happens in a single biome, and you grow three axes: your **car**, your **modular equipment** and the **location** itself (Lv.1 → Lv.5).
 
-The driving model is ported from the sibling project *Smash Town* (decoupled forward/lateral velocity, handbrake drift, nitro, ramps) and extended with track-relative surface logic, walls, boost pads, drift scoring and AI rivals. The original design document is in [`docs/GAME_DESIGN.md`](docs/GAME_DESIGN.md).
+The driving model is ported from the sibling project *Smash Town* (decoupled forward/lateral velocity, handbrake drift, nitro) and extended with track-relative surface logic, walls, boost pads, drift scoring and AI rivals. The original design document is in [`docs/GAME_DESIGN.md`](docs/GAME_DESIGN.md).
 
 ## Run
 
@@ -30,12 +30,13 @@ Debug URL flags: `?autostart=neon_street:circuit` (jump into a race), `&level=5`
 
 ## What is in the game
 
+* **7 locations with different road layouts:** three city-grid street circuits, a purpose-built **race circuit** (Apex Circuit: kerbs, run-off, tyre walls, grandstands), a three-lane **highway** (Coast Highway: long straights, overpasses, a tunnel, fast traffic), a **rally canyon** of esses and kinks and **mountain switchbacks** (Alpine Pass). Details of the first six:
 * **6 biomes** with their own fog/lighting/physics: Harbor Docks (sunset container yards, cranes, lighthouse plaza), Downtown Day (sunny avenues, shop awnings, street trees, square with fountain), Neon Street (a rainy night **city-grid street circuit**: 76 m blocks, 12 m streets, tight 90° corners, a plaza with a fountain, towers hugging the road, neon signs, drift zones), Red Canyon (dirt), Coast Highway (asphalt, causeway, tunnel), Alpine Pass (snow/ice, falling snow). The three city biomes unlock in a chain (Location Lv.2 of the previous one). The open-road tracks are closed `CatmullRomCurve3` splines generated from per-biome harmonics; Neon Street is a rectilinear route over a street grid with rounded corners (`world/gridRoute.ts`, `world/CityBuilder.ts`). Everything downstream (laps, AI, ghosts, traffic) only needs a closed centre line, so more city circuits are just new route specs.
 * **4 race events:** Time Attack (3 laps + your own best-lap **ghost**), 1v1 Duel, 4-Car Circuit, and the **Boss Duel** (unlocked at Location Lv.5).
 * **3-axis progression** persisted in `localStorage`:
   * Vehicle: Engine, Turbo, Tires, Chassis (Lv.0–5).
   * Equipment: 6 swappable parts that change physics *and* attach a visible mesh to the car's slot groups (`suspensionSlot`, `boosterSlot`, `utilitySlot`).
-  * Location Lv.1–5: sponsors/gantry/billboards/streetlights → boost pads → jump ramps with bonus coins → grandstands, jumbotron, fireworks. Payout is ×1.0 / 1.25 / 1.5 / 1.75 / 2.0. Higher levels also unlock the next biome (Lv.2) and the boss duel (Lv.5).
+  * Location Lv.1–5: sponsors/gantry/billboards/streetlights → boost pads → shortcuts (alleys through the city blocks, nitro gates on open roads) → grandstands, jumbotron, fireworks. Payout is ×1.0 / 1.25 / 1.5 / 1.75 / 2.0. Higher levels also unlock the next biome (Lv.2) and the boss duel (Lv.5).
 * **Street racing (Neon Street, lighter on Coast Highway):** civilian lane traffic (taxis, vans, sedans) that you must overtake, signalled junctions where **cross traffic** runs the red (the signal heads turn red as a warning), cones and barrels you can plough through, and real crashes: hard hits stun your steering, wreck civilian cars (smoking, hazard lights) and leave them as obstacles. Close passes at speed are **near misses** (nitro + credits). Rivals swerve and brake around traffic.
 * **Garage:** four cars (Street Coupe, Rally Hatch, Road Muscle, Neon Hyper) with different shapes and stats, eight paints, plus the vehicle upgrades and equipment.
 * **Street extras:** oncoming traffic in the left half of the road, road-closed barricades on side streets, smashable cones, barrels, bins and sign posts, wall-scrape sparks.
@@ -46,7 +47,7 @@ Debug URL flags: `?autostart=neon_street:circuit` (jump into a race), `&level=5`
 * **Meta game:** Championships (Street Series, Open Road Cup: 3 rounds, 10/6/3/1 points, trophies and prizes), a **Daily Challenge** seeded by the date (same for everyone, offline; modifiers like heavy traffic, oncoming rush, tough rivals; streak bonus), 13 achievements.
 * **Settings:** Easy/Normal/Hard difficulty (rival speed, traffic, payout), graphics Auto/High/Low, steering response, field of view, camera shake, volume, touch button size.
 * **Cinematics:** race replay with chase / TV / orbit / low cameras and slow motion around crashes, crash slow-mo during the race, tire smoke.
-* **Economy:** Credits (CR) + Tech Parts (TP). Near misses, smashed props, coins on track (Credit Magnet pulls them in), placement prizes, drift score, perfect drifts, jump bonuses, par time in Time Attack.
+* **Economy:** Credits (CR) + Tech Parts (TP). Near misses, smashed props, coins on track (Credit Magnet pulls them in), placement prizes, drift score, perfect drifts, par time in Time Attack.
 * **i18n:** English default, Korean optional, switchable at any time (`src/i18n`). A unit test keeps the EN/KO key sets identical.
 * **Polish:** bloom on emissives, skid marks, spark/dust/snow particles, speed/nitro FOV, camera shake, minimap, Web Audio engine + SFX, touch controls, pause, wrong-way hint.
 
@@ -67,7 +68,7 @@ sim/                          headless simulations + browser smoke scripts (Play
 
 ## Notes and deliberate deviations from the design doc
 
-* Tracks are flat (no elevation) so the 2D-plane physics stay simple and deterministic; "shortcut routes" at Lv.4 are optional jump ramps with bonus-coin arcs rather than separate branching roads.
+* Tracks are flat (no elevation) so the 2D-plane physics stay simple and deterministic; Lv.4 "shortcut routes" are cut-through alleys in the city and nitro gates on open roads (the earlier jump ramps were removed: they mostly just crashed cars into walls).
 * `loadBiomeScene` in the doc leaked a new set of lights on every call; here each biome owns a root group that is fully disposed on switch.
 * `streetLamp` is a Location Lv.2 feature in every biome instead of a base prop.
 * Rival strength scales with Location level; the Boss Duel rival is faster than a stock car, so it needs upgrades.
@@ -78,7 +79,7 @@ sim/                          headless simulations + browser smoke scripts (Play
 
 ## Ideas for later
 
-Elevation and banking (hills, jump sections), a real drift-chain combo system, slipstream on Coast Highway, daily seeded tracks, replay/photo mode, online ghosts.
+Elevation and banking, photo mode, online ghosts, more circuit layouts.
 
 ## Android pre-release APK
 

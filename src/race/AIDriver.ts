@@ -83,8 +83,10 @@ export class AIDriver {
 
     // corner speed from curvature ahead
     const kap = this.reverse ? track.curvatureBehind(q.idx, 28 + speed * 1.3) : track.curvatureAhead(q.idx, 28 + speed * 1.3);
-    const aLat = 25 * this.cornering * this.skill;
-    const vCorner = kap > 1e-4 ? Math.sqrt(aLat / kap) : 999;
+    // lateral grip shrinks with speed (steering authority and slip), so fast corners are taken slower than slow ones
+    const aLat = (v: number) => Math.max(13, 25 - 0.3 * Math.max(0, v - 17)) * this.cornering * this.skill;
+    const v1 = kap > 1e-4 ? Math.sqrt(aLat(0) / kap) : 999;
+    const vCorner = kap > 1e-4 ? Math.sqrt(aLat(v1) / kap) : 999;
     const target = Math.min(car.stats.maxSpeed * this.skill * targetScale, vCorner, limit, this.hazardLimit);
     const throttle = Math.max(-1, Math.min(1, (target - speed) / 3.5));
 

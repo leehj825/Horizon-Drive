@@ -56,7 +56,7 @@ export interface RaceEvents {
 }
 
 /** Fixed attitudes of the named rivals. */
-const PERSONALITY: Record<string, 'clean' | 'aggressive' | 'blocker'> = { Kira: 'aggressive', Dash: 'clean', Nyx: 'blocker', Rook: 'aggressive', Vex: 'clean', Juno: 'blocker' };
+const PERSONALITY: Record<string, 'clean' | 'aggressive' | 'blocker'> = { Kira: 'aggressive', Dash: 'clean', Nyx: 'blocker', Rook: 'aggressive', Vex: 'clean', Juno: 'blocker', Blitz: 'aggressive', Mako: 'clean', Rex: 'blocker' };
 
 const RIVAL_NAMES = ['Kira', 'Dash', 'Nyx', 'Rook', 'Vex', 'Juno', 'Blitz', 'Mako'];
 
@@ -117,8 +117,8 @@ export class RaceManager {
       const model = buildCar({ color: mode === 'boss' ? 0x101018 : palette[k % 4][0], accent: mode === 'boss' ? 0xff3b3b : palette[k % 4][1], shape: mode === 'boss' ? 'hyper' : rivalShape ?? shapes[(k + 1) % 4] });
       scene.add(model.root);
       const car = new CarController(w.track, { ...BASE_STATS }, NO_MODS, model);
-      // AI ignores ramps (they sit on the left side of the road) but takes boost pads
-      car.features = { ramps: [], pads: w.features.pads };
+      // AI takes boost pads and nitro gates
+      car.features = { pads: w.features.pads };
       car.roadGripMul = w.gripMul;
       const g = w.gridSlot(k);
       car.placeOnTrack(g.s, g.lat);

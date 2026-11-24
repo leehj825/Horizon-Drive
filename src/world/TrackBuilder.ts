@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import type { BiomePreset } from '../data/biomes';
 import { featuresFor, type LocationFeatures } from '../data/upgrades';
-import type { Ramp, Rect, TrackFeatures } from '../vehicle/CarController';
+import type { Rect, TrackFeatures } from '../vehicle/CarController';
 import { Fireworks } from '../fx/Particles';
 import { dashGeometry, ribbonGeometry, wallGeometry } from './ribbon';
 import { along, instanceParts, mulberry32, scatter, stdMat, unitBox, unitCone, unitCyl, type Placement } from './PropFactory';
@@ -33,7 +33,6 @@ export interface BuiltTrack {
   features: TrackFeatures;
   /** Extra coins (ramp bonus arcs) in world coordinates. */
   bonusCoins: { x: number; y: number; z: number }[];
-  /** Ramp landing spots used for jump bonuses. */
   fireworks: Fireworks | null;
   update(dt: number, time: number): void;
   dispose(): void;
@@ -97,7 +96,10 @@ export function buildTrack(track: Track, preset: BiomePreset, level: number, opt
 
   // lane markings
   const laneMat = mats(dbl(new THREE.MeshBasicMaterial({ color: preset.laneColor })));
-  addMesh(dashGeometry(track, 0, 0.35, 4.5, 11, 0.035), laneMat, 0, false);
+  // lane dividers: none on a race circuit, one centre line on two-lane roads, evenly spaced on a highway
+  for (let k = 1; k < Math.max(1, preset.lanes); k++) {
+    addMesh(dashGeometry(track, -hw + (k * 2 * hw) / preset.lanes, 0.35, 4.5, 11, 0.035), laneMat, 0, false);
+  }
   const glowL = preset.id === 'neon_street' ? 0xff3fa6 : preset.laneColor;
   const glowR = preset.id === 'neon_street' ? 0x19e6ff : preset.laneColor;
   addMesh(ribbonGeometry(track, { latA: hw - 0.7, latB: hw - 0.35, y: 0.035 }), mats(dbl(new THREE.MeshBasicMaterial({ color: glowL }))), 0, false);
@@ -404,6 +406,77 @@ export function buildTrack(track: Track, preset: BiomePreset, level: number, opt
       { geo: unitBox(), mat: sign, local: new THREE.Matrix4().compose(new THREE.Vector3(0, 6.2, 0), new THREE.Quaternion(), new THREE.Vector3(9, 1.8, 0.25)) },
     ]);
   }
+  if (lookup('overpass')) {
+    const spots = track.pickStraights(3, Math.max(380, L / 4), [0, L]).filter((q) => !tunnelSkip(q) && q > 150 && q < L - 150);
+    const place = spots.map((q) => { const i = track.indexAt(q); return { x: track.px[i], y: 0, z: track.pz[i], rot: track.heading(i), sx: 1, sy: 1, sz: 1 } as Placement; });
+    const conc = stdMat(0xb9bec6, { roughness: 0.9 });
+    const span = W + 9;
+    const M = (x: number, y: number, z: number, sx: number, sy: number, sz: number) => new THREE.Matrix4().compose(new THREE.Vector3(x, y, z), new THREE.Quaternion(), new THREE.Vector3(sx, sy, sz));
+    wantInst(place, [
+      { geo: unitBox(), mat: conc, local: M(0, 7.2, 0, 2 * span, 1.5, 17), cast: true },
+      { geo: unitBox(), mat: conc.clone(), local: M(span - 0.2, 8.7, 0, 0.5, 1.1, 17) },
+      { geo: unitBox(), mat: conc.clone(), local: M(-span + 0.2, 8.7, 0, 0.5, 1.1, 17) },
+      { geo: unitBox(), mat: conc.clone(), local: M(W + 3, 0, 0, 2.4, 7.2, 5), cast: true },
+      { geo: unitBox(), mat: conc.clone(), local: M(-(W + 3), 0, 0, 2.4, 7.2, 5), cast: true },
+      { geo: unitBox(), mat: new THREE.MeshStandardMaterial({ color: 0x3a3f4a, roughness: 0.9 }), local: M(0, 8.2, 0, 2 * span - 2, 0.1, 15.5) },
+    ]);
+  }
+  if (lookup('tireWall')) {
+    // stacked tyres behind the run-off area, painted red/white in blocks like a real circuit
+    const spots: Placement[] = [];
+    let k = 0;
+    for (let q = 0; q < L; q += 2.6, k++) {
+      const i = track.indexAt(q);
+      const corner = Math.abs(track.curv[i]) > 0.0025;
+      if (!corner && k % 3 !== 0) continue;
+      const col = new THREE.Color(Math.floor(k / 5) % 2 ? 0xe23b3b : 0xf2f2f2);
+      for (const sgn of [-1, 1]) {
+        const x = track.px[i] + track.nx(i) * sgn * (W + 0.7), z = track.pz[i] + track.nz(i) * sgn * (W + 0.7);
+        spots.push({ x, y: 0, z, rot: 0, sx: 1, sy: 1, sz: 1, color: corner ? col : new THREE.Color(0x15171f) });
+      }
+    }
+    const tyre = new THREE.CylinderGeometry(0.62, 0.62, 0.6, 10);
+    wantInst(spots, [
+      { geo: tyre.clone().translate(0, 0.3, 0), mat: stdMat(0xffffff, { roughness: 0.9 }), colored: true },
+      { geo: tyre.clone().translate(0.15, 0.9, 0.1), mat: stdMat(0xffffff, { roughness: 0.9 }), colored: true },
+    ]);
+  }
+  if (lookup('adBoard')) {
+    const byAd: Placement[][] = [[], [], [], [], []];
+    let n = 0;
+    for (let q = 60; q < L - 40; q += 85, n++) {
+      const i = track.indexAt(q);
+      if (Math.abs(track.curv[i]) > 0.0015) continue;
+      for (const sgn of [-1, 1]) byAd[(n + (sgn > 0 ? 2 : 0)) % 5].push({ x: track.px[i] + track.nx(i) * sgn * (W + 3.2), y: 1.1, z: track.pz[i] + track.nz(i) * sgn * (W + 3.2), rot: track.heading(i) + Math.PI / 2, sx: 1, sy: 1, sz: 1 });
+    }
+    byAd.forEach((pl, k) => {
+      const tx = adTexture(k); disposables.push(tx);
+      const m = new THREE.MeshBasicMaterial({ map: tx, side: THREE.DoubleSide });
+      const g = new THREE.PlaneGeometry(8, 2.2);
+      wantInst(pl, [{ geo: g, mat: m, local: new THREE.Matrix4().makeTranslation(0, 1.1, 0) }]);
+    });
+  }
+  if (lookup('grandstand')) {
+    // permanent grandstands along the start straight, left side
+    const tierMat = new THREE.MeshStandardMaterial({ color: 0x48506a, roughness: 0.7, flatShading: true });
+    for (let tier = 0; tier < 3; tier++) {
+      const lat = W + 13 + tier * 3.6;
+      const pl = along(track, 8, lat, L - 230, L + 230, [1, 1, 1]).map((p) => ({ ...p, sx: 8.2, sy: 1.6 + tier * 1.5, sz: 3.6 }));
+      wantInst(pl, [{ geo: unitBox(), mat: tierMat.clone(), cast: true }]);
+    }
+    const crowd: Placement[] = [];
+    for (let tier = 0; tier < 3; tier++) {
+      const lat = W + 13 + tier * 3.6;
+      for (let q = L - 226; q < L + 226; q += 2.1) {
+        const i = track.indexAt(q);
+        const jitter = (rng() - 0.5) * 1.4;
+        crowd.push({ x: track.px[i] + track.nx(i) * (lat + jitter), z: track.pz[i] + track.nz(i) * (lat + jitter), y: 1.6 + tier * 1.5, rot: track.heading(i), sx: 0.55, sy: 1 + rng() * 0.3, sz: 0.5, color: new THREE.Color().setHSL(rng(), 0.7, 0.55) });
+      }
+    }
+    wantInst(crowd, [{ geo: unitBox(), mat: stdMat(0xffffff, { roughness: 0.9 }), colored: true }]);
+    const roof = along(track, 8, W + 16.6, L - 230, L + 230, [1, 1, 1]).map((p) => ({ ...p, y: 7.6, sx: 8.4, sy: 0.35, sz: 8.5 }));
+    wantInst(roof, [{ geo: unitBox(), mat: stdMat(0xe23b3b, { roughness: 0.6 }) }]);
+  }
   if (lookup('pineTree')) {
     const place = scatter(track, rng, 210, 4, 120, (r) => { const s = 0.9 + r() * 1.1; return [s, s, s]; }, { clearance: 3.5 });
     const trunk = stdMat(0x5a3a22);
@@ -450,7 +523,7 @@ export function buildTrack(track: Track, preset: BiomePreset, level: number, opt
       wantInst(pools, [{ geo: pool, mat: poolMat }]);
     }
   }
-  if (feat.sponsors) {
+  if (feat.sponsors || preset.layout === 'circuit') {
     // start gantry
     const gantry = new THREE.Group();
     const frame = mats(stdMat(0x1f2430, { metalness: 0.4, roughness: 0.5 }));
@@ -485,7 +558,7 @@ export function buildTrack(track: Track, preset: BiomePreset, level: number, opt
   }
 
   // ---- Location Lv.3: boost pads ----
-  const features: TrackFeatures = { ramps: [], pads: [] };
+  const features: TrackFeatures = { pads: [] };
   const bonusCoins: { x: number; y: number; z: number }[] = [];
   bonusCoins.push(...alleyCoins);
   const padS: number[] = [];
@@ -503,66 +576,25 @@ export function buildTrack(track: Track, preset: BiomePreset, level: number, opt
     animators.push((_dt, time) => { padMat.emissiveIntensity = 0.75 + Math.sin(time * 6) * 0.25; });
   }
 
-  // ---- Location Lv.4: jump ramps ----
-  if (feat.jumps) {
-    const rampS = track.pickStraights(2, L / 3, [0, L, ...padS]).filter((s) => !tunnelSkip(s));
-    const rampMat = mats(stdMat(0x5b6384, { roughness: 0.55, emissive: 0x161c36, emissiveIntensity: 1 }));
-    const stripe = mats(new THREE.MeshBasicMaterial({ color: preset.id === 'neon_street' ? 0xff3fa6 : 0xffc928 }));
-    const arrowMat = mats(new THREE.MeshBasicMaterial({ color: 0x19e6ff, transparent: true, opacity: 0.5, depthWrite: false, blending: THREE.AdditiveBlending }));
-    const arrowGeo = geom(new THREE.ConeGeometry(0.5, 1.7, 4));
-    arrowGeo.rotateX(Math.PI / 2); // tip along +z
-    const arrows: { m: THREE.Mesh; base: number }[] = [];
-    for (const s of rampS) {
-      const lat = hw * 0.48;
+  // ---- Location Lv.4 on open roads: nitro gates (the city gets alley shortcuts instead) ----
+  if (feat.shortcuts && !city) {
+    const gateS = track.pickStraights(4, Math.max(300, L / 5), [0, L, ...padS]).filter((s) => !tunnelSkip(s));
+    const gateCol = preset.surface === 'snow' ? 0x7fd8ff : preset.surface === 'dirt' ? 0xffc928 : 0x19e6ff;
+    const gateMat = mats(new THREE.MeshBasicMaterial({ color: gateCol }));
+    const lineMat = mats(dbl(new THREE.MeshBasicMaterial({ color: gateCol, transparent: true, opacity: 0.28, depthWrite: false, blending: THREE.AdditiveBlending })));
+    const gatePosts: Placement[] = [];
+    for (const s of gateS) {
       const i = track.indexAt(s);
-      const x = track.px[i] + track.nx(i) * lat, z = track.pz[i] + track.nz(i) * lat;
-      const r: Ramp = { x, z, dx: track.tx[i], dz: track.tz[i], w: 7.4, l: 15, h: 2.3 };
-      features.ramps.push(r);
-      // wedge mesh
-      const hwid = r.w / 2, hl = r.l / 2;
-      const wedge = new THREE.BufferGeometry();
-      const v = [
-        -hwid, 0, -hl, hwid, 0, -hl, -hwid, r.h, hl, hwid, r.h, hl, // top slope corners (front low .. back high)
-        -hwid, 0, hl, hwid, 0, hl,
-      ];
-      wedge.setAttribute('position', new THREE.Float32BufferAttribute(v, 3));
-      wedge.setIndex([0, 2, 1, 1, 2, 3, 2, 4, 3, 3, 4, 5, 0, 4, 2, 1, 3, 5]);
-      wedge.computeVertexNormals();
-      const mesh = new THREE.Mesh(geom(wedge), rampMat);
-      mesh.position.set(x, 0.02, z);
-      mesh.rotation.y = track.heading(i);
-      mesh.castShadow = true;
-      mesh.material = dbl(rampMat);
-      group.add(mesh);
-      const edge = new THREE.Mesh(geom(new THREE.BoxGeometry(r.w, 0.14, 0.7)), stripe);
-      edge.position.set(0, r.h + 0.07, hl - 0.2);
-      mesh.add(edge);
-      for (let k = 0; k < 3; k++) {
-        const a = new THREE.Mesh(arrowGeo, arrowMat);
-        const ap = track.pointAt(s - 22 - k * 9, lat);
-        a.position.set(ap.x, 1.3, ap.z);
-        a.rotation.y = track.heading(i);
-        a.userData.noMerge = true;
-        group.add(a);
-        arrows.push({ m: a, base: k });
-      }
-      // bonus coins on the flight arc
-      const j = track.indexAt(s + r.l / 2 + 2);
-      for (let k = 0; k < 6; k++) {
-        const f = k / 5;
-        bonusCoins.push({
-          x: track.px[j] + track.tx[j] * f * 16 + track.nx(j) * lat,
-          z: track.pz[j] + track.tz[j] * f * 16 + track.nz(j) * lat,
-          y: 1.4 + Math.sin(f * Math.PI) * 2.6,
-        });
-      }
+      features.pads.push({ x: track.px[i], z: track.pz[i], dx: track.tx[i], dz: track.tz[i], w: 2 * hw, l: 4, gate: true } as Rect);
+      addMesh(ribbonGeometry(track, { latA: -hw, latB: hw, y: 0.055, s0: s - 1.2, s1: s + 1.2 }), lineMat, 0, false);
+      gatePosts.push({ x: track.px[i], y: 0, z: track.pz[i], rot: track.heading(i), sx: 1, sy: 1, sz: 1 });
     }
-    animators.push((_dt, time) => {
-      for (const a of arrows) {
-        a.m.position.y = 1.3 + Math.sin(time * 4 - a.base * 0.9) * 0.25;
-        (a.m.material as THREE.MeshBasicMaterial).opacity = 0.2 + 0.3 * Math.max(0, Math.sin(time * 6 - a.base * 1.3));
-      }
-    });
+    const half = hw + 1.4;
+    wantInst(gatePosts, [
+      { geo: unitBox(), mat: gateMat, local: new THREE.Matrix4().compose(new THREE.Vector3(half, 0, 0), new THREE.Quaternion(), new THREE.Vector3(0.6, 7.5, 0.6)) },
+      { geo: unitBox(), mat: gateMat.clone(), local: new THREE.Matrix4().compose(new THREE.Vector3(-half, 0, 0), new THREE.Quaternion(), new THREE.Vector3(0.6, 7.5, 0.6)) },
+      { geo: unitBox(), mat: gateMat.clone(), local: new THREE.Matrix4().compose(new THREE.Vector3(0, 7.2, 0), new THREE.Quaternion(), new THREE.Vector3(2 * half, 0.7, 0.7)) },
+    ]);
   }
 
   // ---- Location Lv.5: grandstands, jumbotron, fireworks ----

@@ -10,7 +10,7 @@ import { BIOME_PRESETS, type BiomeId } from './data/biomes';
 import { CARS, PAINTS, type CarId } from './data/cars';
 import { checkAchievements } from './data/achievements';
 import { champById, champProgress, claimDaily, recordChampRound, type DailyChallenge } from './data/challenges';
-import { applyPayout, awardMedal, carSetup, perkFor, computePayout, DIFFICULTY, isBiomeUnlocked, pinkSlipPrize, recordStats, todaysChallenge, type RaceMode } from './data/progression';
+import { applyPayout, awardMedal, carSetup, perkFor, TRAFFIC, computePayout, DIFFICULTY, isBiomeUnlocked, pinkSlipPrize, recordStats, todaysChallenge, type RaceMode } from './data/progression';
 import { SaveState } from './data/saveState';
 import { I18n } from './i18n/i18n';
 import { Input } from './input/Input';
@@ -61,6 +61,7 @@ export class Game implements MenuHost {
   private warnedWorks = -1;
   private worksRng = Math.random;
   private raceExtra: RaceExtra = {};
+  private trafficSetting: 'off' | 'low' | 'normal' | 'high' = 'normal';
   private special = false;
   private headlight: THREE.SpotLight | null = null;
   private wreckCount = 0;
@@ -81,7 +82,7 @@ export class Game implements MenuHost {
   private lastT = 0;
   private autopilot: AIDriver | null = null;
   private coinsCollected = 0;
-  private jumpBonus = 0;
+  private gatesPassed = 0;
   private smashCount = 0;
   private warnedJunction = -1;
   private lastMode: RaceMode = 'time_attack';
@@ -222,14 +223,7 @@ export class Game implements MenuHost {
   private wirePlayerEvents(): void {
     this.player.setEvents({
       onWall: (s) => { this.rig.shake(Math.min(0.9, s * 0.05)); this.sfx.wall(s); this.race?.hurtCargo(s * 0.008); },
-      onLand: (dist) => {
-        this.sfx.land(); this.rig.shake(0.25); this.race?.hurtCargo(0.03);
-        if (dist >= 12) {
-          const bonus = 20 + Math.round(dist);
-          this.jumpBonus += bonus;
-          this.hud.toast(this.i18n.t('ui.jump', { n: bonus }), 'gold');
-        }
-      },
+      onGate: () => { this.gatesPassed++; this.sfx.pad(); this.rig.shake(0.15); this.hud.toast(this.i18n.t('ui.nitroGate'), 'cyan', 1000); },
       onPad: () => { this.sfx.pad(); this.rig.shake(0.2); this.hud.toast(this.i18n.t('ui.boost'), 'cyan', 900); },
       onDriftScore: (pts, mult) => { if (mult > 1) this.hud.toast(this.i18n.t('ui.chainUp', { m: mult.toFixed(1) }) + ` · +${pts}`, 'gold', 1100); },
       onDamage: (lvl) => { this.hud.toast(this.i18n.t(lvl >= 2 ? 'ui.critical' : 'ui.damaged'), lvl >= 2 ? 'gold' : '', 2200); this.rig.shake(0.3); },
@@ -437,11 +431,14 @@ export class Game implements MenuHost {
       this.save.save();
     }
     const champ = ctx.type === 'champ' ? champById(ctx.id) : null;
+    // street traffic option applies to free races; championships and the daily challenge use normal traffic
+    this.trafficSetting = ctx.type === 'free' ? this.save.data.settings.traffic : 'normal';
+    const trafficMul = TRAFFIC[this.trafficSetting].mul;
     this.wreckCount = 0; this.slowT = 0; this.timeScale = 1;
     world.skids.clear();
     world.coins.reset();
     world.props.reset();
-    this.coinsCollected = 0; this.jumpBonus = 0; this.smashCount = 0; this.warnedJunction = -1; this.resultsShown = false;
+    this.coinsCollected = 0; this.gatesPassed = 0; this.smashCount = 0; this.warnedJunction = -1; this.resultsShown = false;
     this.prevLap = -1; this.prevNitro = 0.5; this.warnedWorks = -1;
     this.moveRoadWorks();
     this.race = new RaceManager(world, mode, this.player, {
@@ -493,7 +490,7 @@ export class Game implements MenuHost {
         for (let i = 0; i < 6; i++) world.particles.emit(x, 0.4, z, (Math.random() - 0.5) * 6, 1 + Math.random() * 3, (Math.random() - 0.5) * 6, kind === 1 ? 0xff8a3a : kind === 3 ? 0x7fc8ff : 0xffffff, 0.9, 0.5, 12);
       },
     }, mode === 'time_attack' && !this.special ? (this.save.data.ghosts[biome] ?? null) : null, skills[mode], this.scene,
-    world.preset.traffic.cars > 0 || world.intersections.length > 0 ? new Traffic(world, this.scene, world.intersections, { countMul: diff.traffic * (dailyMods?.trafficMul ?? 1) * (mode === 'speed_run' ? 0.4 : 1) * (perk === 'safety' ? 0.7 : 1), oncoming: mode === 'speed_run' ? 0 : dailyMods?.oncoming ?? null }) : null, world.props, champ ? [...champ.rivals] : null, this.slip ? CARS[this.slip.car].shape : null);
+    trafficMul > 0 && (world.preset.traffic.cars > 0 || world.intersections.length > 0) ? new Traffic(world, this.scene, world.intersections, { countMul: diff.traffic * trafficMul * (dailyMods?.trafficMul ?? 1) * (mode === 'speed_run' ? 0.4 : 1) * (perk === 'safety' ? 0.7 : 1), oncoming: mode === 'speed_run' ? 0 : dailyMods?.oncoming ?? null }) : null, world.props, champ ? [...champ.rivals] : null, this.slip ? CARS[this.slip.car].shape : null);
     this.race.ghost?.model.applyLoadout({});
     const rivals = this.race.racers.filter((x) => x.ai);
     if (rivals.length > 1 || mode === 'duel') this.hud.toast(`${this.i18n.t('ui.rivalsAre')}: ` + rivals.map((x) => `${x.name} (${this.i18n.t('ui.style_' + x.ai!.style)})`).join(' · '), '', 3800);
@@ -541,9 +538,9 @@ export class Game implements MenuHost {
     const stats = {
       biome, mode, position: mode === 'time_attack' ? 1 : rank, time,
       driftScore: this.player.driftScore, perfectDrifts: this.player.perfectDrifts,
-      coins: this.coinsCollected, jumpBonus: this.jumpBonus,
+      coins: this.coinsCollected, gates: this.gatesPassed,
       nearMisses: r.nearMisses, smashes: this.smashCount,
-      difficulty: d.settings.difficulty, wrecks: this.wreckCount, jumps: this.player.jumps,
+      difficulty: d.settings.difficulty, traffic: this.trafficSetting, wrecks: this.wreckCount,
       noRecords: this.special, score: this.player.driftScore, integrity: r.cargo, failed: r.failed, stake: this.slip?.stake, prizeCar: this.slip?.car ?? null,
     };
     const prevBest = mode === 'drift_trial' ? d.bestScores[`${biome}:${mode}`] : d.bestTimes[`${biome}:${mode}`];
