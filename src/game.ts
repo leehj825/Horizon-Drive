@@ -153,6 +153,15 @@ export class Game implements MenuHost {
     addEventListener('resize', () => this.resize());
     this.sfx.setMuted(this.save.data.muted);
     addEventListener('blur', () => { if (this.state === 'race') this.togglePause(); });
+    // going to the background (tab switch, app switcher, screen off): silence the audio and pause the race
+    const background = (hidden: boolean) => {
+      if (hidden) { this.sfx.pauseAudio(); if (this.state === 'race') this.togglePause(); }
+      else this.sfx.resumeAudio();
+    };
+    document.addEventListener('visibilitychange', () => background(document.hidden));
+    addEventListener('pagehide', () => background(true));
+    addEventListener('pageshow', () => background(false));
+    (window as unknown as { __hdBackground: (h: boolean) => void }).__hdBackground = background; // called by the Android shell
     const unlock = () => { this.sfx.resume(); this.music.start(); this.updateMusic(); };
     addEventListener('pointerdown', unlock);
     addEventListener('keydown', unlock);

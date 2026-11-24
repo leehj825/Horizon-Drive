@@ -127,14 +127,21 @@ public class MainActivity extends Activity {
 
     @Override
     protected void onPause() {
-        web.onPause();
+        // tell the game first so it can silence Web Audio and pause the race, then freeze the WebView
+        web.evaluateJavascript("window.__hdBackground&&window.__hdBackground(true)", null);
+        pauseRunnable = () -> web.onPause();
+        web.postDelayed(pauseRunnable, 150);
         super.onPause();
     }
+
+    private Runnable pauseRunnable;
 
     @Override
     protected void onResume() {
         super.onResume();
+        if (pauseRunnable != null) web.removeCallbacks(pauseRunnable);
         web.onResume();
+        web.evaluateJavascript("window.__hdBackground&&window.__hdBackground(false)", null);
     }
 
     @Override

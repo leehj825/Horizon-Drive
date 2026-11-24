@@ -43,6 +43,18 @@ export class Synth {
     if (this.ctx.state === 'suspended') void this.ctx.resume();
   }
 
+  private suspendedByApp = false;
+
+  /** App went to the background: silence everything (engine, effects, music). */
+  pauseAudio(): void {
+    if (this.ctx && this.ctx.state === 'running') { this.suspendedByApp = true; void this.ctx.suspend(); }
+  }
+
+  /** App is back in the foreground: continue only what we suspended ourselves. */
+  resumeAudio(): void {
+    if (this.ctx && this.suspendedByApp) { this.suspendedByApp = false; void this.ctx.resume(); }
+  }
+
   setMuted(m: boolean): void {
     this.muted = m;
     if (this.master && this.ctx) this.master.gain.setTargetAtTime(m ? 0 : 0.5 * this.volume, this.ctx.currentTime, 0.05);
