@@ -3,6 +3,7 @@ import type { BiomePreset, CityStyle } from '../data/biomes';
 import { instanceParts, mulberry32, unitBox, unitCyl, type Part, type Placement } from './PropFactory';
 import { windowTexture } from './textures';
 import type { Track } from './track';
+import { addRooftops, addStreetDetail, facadeTint, type Animator } from './CityDetail';
 
 interface Look {
   pave: number;
@@ -26,7 +27,7 @@ const AWNING = [0xd8382e, 0x2f8cff, 0xffc928, 0x2fcf7a, 0xff8ad0, 0xf4f4f4];
  * The race city: asphalt grid, block pavements, per-style blocks (neon towers, harbor container yards and
  * cranes, sunny downtown with awnings and trees), side-street dashes and the plaza centrepiece.
  */
-export function buildCity(track: Track, preset: BiomePreset, group: THREE.Group, disposables: { dispose(): void }[]): void {
+export function buildCity(track: Track, preset: BiomePreset, group: THREE.Group, disposables: { dispose(): void }[]): Animator[] {
   const style: CityStyle = preset.cityStyle ?? 'neon';
   const look = LOOKS[style];
   const city = track.city!;
@@ -83,7 +84,7 @@ export function buildCity(track: Track, preset: BiomePreset, group: THREE.Group,
   const towerMat = new THREE.MeshStandardMaterial(
     style === 'day'
       ? { color: 0xffffff, map: win, roughness: 0.35, metalness: 0.25, flatShading: true }
-      : { color: style === 'harbor' ? 0x2a2f3c : 0x1b1f33, map: win, emissive: 0xffffff, emissiveMap: win, emissiveIntensity: style === 'harbor' ? 0.85 : 1.05, roughness: 0.6, flatShading: true },
+      : { color: 0xffffff, map: win, emissive: 0xffffff, emissiveMap: win, emissiveIntensity: style === 'harbor' ? 0.85 : 1.05, roughness: 0.6, flatShading: true },
   );
   void lit;
   const towers: Placement[] = [];
@@ -171,7 +172,12 @@ export function buildCity(track: Track, preset: BiomePreset, group: THREE.Group,
       }
     }
   }
-  inst(towers, [{ geo: unitBox(), mat: towerMat }]);
+  const detailCtx = { track, preset, style, rng, edge, inst };
+  const animators: Animator[] = [];
+  for (const t of towers) t.color = facadeTint(style, rng);
+  animators.push(addRooftops(detailCtx, towers)); // pushes setback tiers into `towers` too
+  for (const t of towers) t.color ??= facadeTint(style, rng);
+  inst(towers, [{ geo: unitBox(), mat: towerMat, colored: true }]);
   inst(crowns, [{ geo: unitBox(), mat: new THREE.MeshBasicMaterial({ color: style === 'harbor' ? 0xff4a3a : 0xff3fa6 }) }]);
   inst(signs, [{ geo: unitBox(), mat: new THREE.MeshBasicMaterial({ color: 0xffffff }), colored: true }]);
   inst(boxesC, [{ geo: unitBox(), mat: new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.7, flatShading: true }), colored: true }]);
@@ -260,4 +266,7 @@ export function buildCity(track: Track, preset: BiomePreset, group: THREE.Group,
       { geo: new THREE.IcosahedronGeometry(1.7, 0), mat: new THREE.MeshStandardMaterial(style === 'neon' ? { color: 0xff7ac8, emissive: 0x6a1a4a, emissiveIntensity: 0.6, flatShading: true } : { color: 0x3f9a4a, flatShading: true }), local: lampL(3.6, 1) },
     ]);
   }
+  const walk = addStreetDetail(detailCtx);
+  if (walk) animators.push(walk);
+  return animators;
 }

@@ -85,7 +85,7 @@ export function buildTrack(track: Track, preset: BiomePreset, level: number, opt
   }
 
   const city = !!track.city;
-  if (city) buildCity(track, preset, group, disposables);
+  if (city) animators.push(...buildCity(track, preset, group, disposables));
 
   // ---- road surface ----
   const road = mats(dbl(stdMat(preset.roadColor, { roughness: preset.id === 'neon_street' ? 0.32 : 0.9, metalness: preset.id === 'neon_street' ? 0.25 : 0 })));
