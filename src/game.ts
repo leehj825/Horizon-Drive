@@ -20,7 +20,8 @@ import { Traffic } from './race/Traffic';
 import { Hud } from './ui/Hud';
 import { Menus, type MenuHost, type RaceExtra, type ResultsData, type Screen } from './ui/Menus';
 import { CarController, type CarFx, type ControlState } from './vehicle/CarController';
-import { buildCar, type CarModel } from './vehicle/CarMeshBuilder';
+import { buildCar, setCarEnvMap, type CarModel } from './vehicle/CarMeshBuilder';
+import { buildCarEnv } from './vehicle/carEnv';
 import { loadBiomeScene, type BiomeWorld, type Quality, type WorldOptions } from './world/BiomeLoader';
 
 const DT = 1 / 120;
@@ -54,6 +55,7 @@ export class Game implements MenuHost {
   world: BiomeWorld | null = null;
   player!: CarController;
   playerModel!: CarModel;
+  private carEnvRT: THREE.WebGLRenderTarget | null = null;
   private modelKey = '';
   private holdRace = false;
   private raceCtx: RaceCtx = { type: 'free' };
@@ -185,6 +187,15 @@ export class Game implements MenuHost {
     this.setHeadlights(opts.weather === 'night');
     this.world = loadBiomeScene(this.scene, biome, this.levelFor(biome), this.quality, opts);
     this.rebuildPostFx();
+    {
+      const pr = this.world.preset;
+      const night = opts.weather === 'night';
+      const old = this.carEnvRT;
+      this.carEnvRT = buildCarEnv(this.renderer, { sky: pr.skyColor, horizon: pr.horizonColor, ground: pr.groundColor, accent: pr.fxColor, sun: pr.sunLight.color, night });
+      setCarEnvMap(this.carEnvRT.texture);
+      old?.dispose();
+      this.playerModel.setUnderglow?.(night);
+    }
     const { stats, mods } = carSetup(this.save.data);
     this.player = new CarController(this.world.track, stats, mods, this.playerModel, {});
     this.player.features = this.world.features;

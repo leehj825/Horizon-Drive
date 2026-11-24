@@ -454,6 +454,7 @@ export class CarController {
     for (const w of m.wheelMeshes) w.rotation.x = this.wheelSpin;
     const braking = ctl ? ctl.throttle < 0 && this.forwardSpeed > 0.5 : false;
     this.clock += dt;
+    m.setDamage?.(this.damage);
     m.tailMat.emissiveIntensity = this.hazard ? (Math.sin(this.clock * 9) > 0 ? 3.6 : 0.15) : braking ? 3.2 : 1.1;
   }
 }
